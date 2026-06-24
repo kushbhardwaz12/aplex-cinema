@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isAdmin() { 
+      return isSignedIn() && 
+             request.auth.token.email == "lalitasuraj27@gmail.com"; 
+    }
+    
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidMovie(data) {
+      return data.keys().hasAll(['title', 'description', 'posterUrl', 'genres', 'links', 'createdAt']) &&
+             data.keys().size() <= 7 &&
+             data.title is string && data.title.size() <= 200 && data.title.size() > 0 &&
+             data.description is string && data.description.size() <= 5000 &&
+             data.posterUrl is string && data.posterUrl.size() <= 1000 &&
+             data.genres is list && data.genres.size() <= 10 && (data.genres.size() == 0 || data.genres[0] is string) &&
+             data.links is map && data.links.keys().hasAny(['quality620', 'quality720', 'quality1080']) &&
+             data.createdAt is timestamp &&
+             (data.keys().hasAll(['updatedAt']) ? data.updatedAt is timestamp : true);
+    }
+
+    match /movies/{movieId} {
+      allow read, write: if true;
+    }
+  }
+}

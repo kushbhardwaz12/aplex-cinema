@@ -1,0 +1,6 @@
+{
+  "name": "aplex-cinema",
+  "description": "A platform for sharing and downloading movies in multiple qualities. Includes an admin panel for uploading links.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

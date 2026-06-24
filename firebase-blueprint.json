@@ -1,0 +1,28 @@
+{
+  "collections": [
+    {
+      "name": "movies",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "number" },
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "image": { "type": "string" },
+          "category": { "type": "string" },
+          "screenshots": { "type": "array", "items": { "type": "string" } },
+          "link620p": { "type": "string" },
+          "link720p": { "type": "string" },
+          "link1080p": { "type": "string" },
+          "ratings": { "type": "array", "items": { "type": "number" } },
+          "episodes": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "securityRules": {
+        "read": "true",
+        "write": "true"
+      }
+    }
+  ]
+}

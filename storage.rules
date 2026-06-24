@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isAdmin() { 
+      return isSignedIn() && 
+             request.auth.token.email == "lalitasuraj27@gmail.com"; 
+    }
+
+    match /posters/{imageId} {
+      allow read: if true;
+      allow write: if isAdmin() &&
+                   request.resource.size < 5 * 1024 * 1024 && // Max 5MB
+                   request.resource.contentType.matches('image/.*');
+    }
+  }
+}
