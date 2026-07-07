@@ -489,6 +489,9 @@ export default function App() {
       }
       setScreen("public_home");
     } catch (error: any) {
+      if (error.code === "auth/cancelled-popup-request" || error.code === "auth/popup-closed-by-user") {
+        return;
+      }
       console.error(error);
       setLoginError("Google Sign-In failed. Please try again.");
     }
