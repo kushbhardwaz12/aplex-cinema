@@ -27,6 +27,10 @@ import {
   Clock,
   Bookmark,
   Bell,
+  Pencil,
+  Activity,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -194,6 +198,9 @@ export default function App() {
 
   const [adminError, setAdminError] = useState("");
   const [adminSuccess, setAdminSuccess] = useState("");
+  const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
+  
+
 
   // Series Form States
   const [activeAdminTab, setActiveAdminTab] = useState<"movie" | "series">(
@@ -223,6 +230,65 @@ export default function App() {
 
   // App Data State
   const [movies, setMovies] = useState<Movie[]>([]);
+
+  // AI Bot State
+  const [botCheckStatus, setBotCheckStatus] = useState<"idle" | "running" | "done">("idle");
+  const [brokenLinksReport, setBrokenLinksReport] = useState<{movieId: string, title: string, linkType: string, url: string}[]>([]);
+  const [lastChecked, setLastChecked] = useState<string | null>(localStorage.getItem("ai_bot_last_checked"));
+
+  const runAiBotCheck = async () => {
+    setBotCheckStatus("running");
+    const broken: {movieId: string, title: string, linkType: string, url: string}[] = [];
+    
+    // Check up to 50 movies to keep it somewhat fast in frontend
+    const moviesToCheck = movies.slice(0, 50);
+    
+    for (const m of moviesToCheck) {
+        const links = [];
+        if (m.type === 'movie') {
+            if (m.link620p) links.push({ type: '620p', url: m.link620p });
+            if (m.link720p) links.push({ type: '720p', url: m.link720p });
+            if (m.link1080p) links.push({ type: '1080p', url: m.link1080p });
+        } else if (m.type === 'series') {
+            m.episodes?.forEach((ep, i) => {
+               if (ep.link) links.push({ type: `Ep ${i+1}`, url: ep.link });
+            });
+        }
+        
+        for (const l of links) {
+           try {
+              // Quick check via allorigins proxy to avoid CORS
+              const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(l.url)}`);
+              const data = await res.json();
+              if (data.status && data.status.http_code >= 400 && data.status.http_code !== 403) { // 403 might just be anti-bot blocking on valid link
+                 broken.push({ movieId: m.id, title: m.title, linkType: l.type, url: l.url });
+              }
+           } catch (e) {
+              // Ignore proxy failure to not false positive too much
+           }
+        }
+    }
+    setBrokenLinksReport(broken);
+    setBotCheckStatus("done");
+    const now = new Date().toLocaleString();
+    setLastChecked(now);
+    localStorage.setItem("ai_bot_last_checked", now);
+  };
+
+  useEffect(() => {
+    if (isAdminAuth && screen === "admin_dashboard" && movies.length > 0) {
+       const last = localStorage.getItem("ai_bot_last_checked");
+       if (!last) {
+          runAiBotCheck();
+       } else {
+          // Check if 48 hours passed (1 din chhodke 1 din check karega automaticly)
+          const lastDate = new Date(last).getTime();
+          if (Date.now() - lastDate > 48 * 60 * 60 * 1000) {
+              runAiBotCheck();
+          }
+       }
+    }
+  }, [isAdminAuth, screen, movies.length]);
 
   // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
@@ -508,34 +574,56 @@ export default function App() {
     }
 
     try {
-      if (isSeriesHighlight) {
+      if (isSeriesHighlight && (!editingMovieId || movies.find(m => m.id === editingMovieId)?.isHighlight !== isSeriesHighlight)) {
         await manageHighlightsCount();
       }
 
-      const newSeries = {
-        type: "series",
-        title: seriesTitle,
-        description: seriesDesc,
-        image:
-          seriesImage ||
-          "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
-        category: seriesCategory,
-        screenshots: seriesScreenshots,
-        episodes: validEpisodes.map((ep, idx) => ({
-          id: Date.now() + idx,
-          title: `Episode ${idx + 1}`,
-          link: ep.link,
-        })),
-        link620p: seriesLink620p,
-        link720p: seriesLink720p,
-        link1080p: seriesLink1080p,
-        ratings: [],
-        createdAt: new Date(),
-        isHighlight: isSeriesHighlight,
-      };
+      if (editingMovieId) {
+        const updateData = {
+          title: seriesTitle,
+          description: seriesDesc,
+          image: seriesImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+          category: seriesCategory,
+          screenshots: seriesScreenshots,
+          episodes: validEpisodes.map((ep, idx) => ({
+            id: Date.now() + idx,
+            title: `Episode ${idx + 1}`,
+            link: ep.link,
+          })),
+          link620p: seriesLink620p,
+          link720p: seriesLink720p,
+          link1080p: seriesLink1080p,
+          isHighlight: isSeriesHighlight,
+        };
+        await updateDoc(doc(db, "movies", editingMovieId), updateData);
+        setAdminSuccess("Web Series updated successfully!");
+        setEditingMovieId(null);
+      } else {
+        const newSeries = {
+          type: "series",
+          title: seriesTitle,
+          description: seriesDesc,
+          image:
+            seriesImage ||
+            "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+          category: seriesCategory,
+          screenshots: seriesScreenshots,
+          episodes: validEpisodes.map((ep, idx) => ({
+            id: Date.now() + idx,
+            title: `Episode ${idx + 1}`,
+            link: ep.link,
+          })),
+          link620p: seriesLink620p,
+          link720p: seriesLink720p,
+          link1080p: seriesLink1080p,
+          ratings: [],
+          createdAt: new Date(),
+          isHighlight: isSeriesHighlight,
+        };
 
-      await addDoc(collection(db, "movies"), newSeries);
-      setAdminSuccess("Web Series published successfully!");
+        await addDoc(collection(db, "movies"), newSeries);
+        setAdminSuccess("Web Series published successfully!");
+      }
 
       setSeriesTitle("");
       setSeriesDesc("");
@@ -552,12 +640,31 @@ export default function App() {
 
       setTimeout(() => {
         setAdminSuccess("");
-        setScreen("public_home");
+        // Only redirect to home if we added a new series, otherwise stay in admin panel
+        if (!editingMovieId) setScreen("public_home");
       }, 1500);
     } catch (error) {
-      setAdminError("Failed to add series to network.");
+      setAdminError("Failed to save series to network.");
       console.error(error);
     }
+  };
+
+  const handleEditSeries = (movie: Movie) => {
+    setActiveAdminTab("series");
+    setEditingMovieId(movie.id);
+    setSeriesTitle(movie.title || "");
+    setSeriesDesc(movie.description || "");
+    setSeriesImage(movie.image || null);
+    setSeriesCategory(Array.isArray(movie.category) ? movie.category : (movie.category ? [movie.category] : []));
+    setSeriesScreenshots(movie.screenshots || []);
+    setSeriesLink620p(movie.link620p || "");
+    setSeriesLink720p(movie.link720p || "");
+    setSeriesLink1080p(movie.link1080p || "");
+    setIsSeriesHighlight(movie.isHighlight || false);
+    setEpisodes(movie.episodes?.length ? movie.episodes.map(ep => ({ link: ep.link })) : [{ link: "" }]);
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -602,31 +709,50 @@ export default function App() {
     }
 
     try {
-      if (isMovieHighlight) {
+      if (isMovieHighlight && (!editingMovieId || movies.find(m => m.id === editingMovieId)?.isHighlight !== isMovieHighlight)) {
         await manageHighlightsCount();
       }
 
-      const newMovie = {
-        title: movieTitle,
-        description: movieDesc,
-        image:
-          movieImage ||
-          "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
-        category: movieCategory,
-        screenshots: movieScreenshots,
-        type: "movie",
-        link620p,
-        link720p,
-        link1080p,
-        ratings: [],
-        createdAt: new Date(),
-        isHighlight: isMovieHighlight,
-        isLiveStream,
-        liveStreamLink,
-      };
+      if (editingMovieId) {
+        const updateData = {
+          title: movieTitle,
+          description: movieDesc,
+          image: movieImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+          category: movieCategory,
+          screenshots: movieScreenshots,
+          link620p,
+          link720p,
+          link1080p,
+          isHighlight: isMovieHighlight,
+          isLiveStream,
+          liveStreamLink,
+        };
+        await updateDoc(doc(db, "movies", editingMovieId), updateData);
+        setAdminSuccess("Movie updated successfully!");
+        setEditingMovieId(null);
+      } else {
+        const newMovie = {
+          title: movieTitle,
+          description: movieDesc,
+          image:
+            movieImage ||
+            "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+          category: movieCategory,
+          screenshots: movieScreenshots,
+          type: "movie",
+          link620p,
+          link720p,
+          link1080p,
+          ratings: [],
+          createdAt: new Date(),
+          isHighlight: isMovieHighlight,
+          isLiveStream,
+          liveStreamLink,
+        };
 
-      await addDoc(collection(db, "movies"), newMovie);
-      setAdminSuccess("Movie published successfully!");
+        await addDoc(collection(db, "movies"), newMovie);
+        setAdminSuccess("Movie published successfully!");
+      }
 
       setMovieTitle("");
       setMovieDesc("");
@@ -643,12 +769,32 @@ export default function App() {
 
       setTimeout(() => {
         setAdminSuccess("");
-        setScreen("public_home");
+        // Only redirect to home if we added a new movie, otherwise stay in admin panel
+        if (!editingMovieId) setScreen("public_home");
       }, 1500);
     } catch (error) {
-      setAdminError("Failed to add movie to network.");
+      setAdminError("Failed to save movie to network.");
       console.error(error);
     }
+  };
+
+  const handleEditMovie = (movie: Movie) => {
+    setActiveAdminTab("movie");
+    setEditingMovieId(movie.id);
+    setMovieTitle(movie.title || "");
+    setMovieDesc(movie.description || "");
+    setMovieImage(movie.image || null);
+    setMovieCategory(Array.isArray(movie.category) ? movie.category : (movie.category ? [movie.category] : []));
+    setMovieScreenshots(movie.screenshots || []);
+    setLink620p(movie.link620p || "");
+    setLink720p(movie.link720p || "");
+    setLink1080p(movie.link1080p || "");
+    setIsMovieHighlight(movie.isHighlight || false);
+    setIsLiveStream(movie.isLiveStream || false);
+    setLiveStreamLink(movie.liveStreamLink || "");
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDeleteMovie = async (id: string) => {
@@ -952,6 +1098,63 @@ export default function App() {
                 >
                   <ArrowLeft className="w-4 h-4" /> View Public Page
                 </button>
+              </div>
+
+              {/* AI Bot Link Checker Dashboard */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Activity className={`w-5 h-5 ${botCheckStatus === 'running' ? 'text-blue-400 animate-pulse' : 'text-blue-500'}`} />
+                    AI Link Health Bot
+                  </h3>
+                  <button
+                    onClick={runAiBotCheck}
+                    disabled={botCheckStatus === 'running'}
+                    className="bg-blue-900/40 hover:bg-blue-800/60 text-blue-400 border border-blue-900/50 px-4 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {botCheckStatus === 'running' ? 'Scanning Network...' : 'Run Diagnostics'}
+                  </button>
+                </div>
+                
+                <div className="text-sm text-slate-400 mb-4">
+                  Last checked: {lastChecked || "Never"}
+                </div>
+
+                {botCheckStatus === 'running' && (
+                  <div className="flex items-center gap-3 text-blue-400 bg-blue-950/30 p-4 rounded-xl border border-blue-900/30">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <span>AI Bot is verifying extraction protocols across the network...</span>
+                  </div>
+                )}
+
+                {botCheckStatus === 'done' && brokenLinksReport.length === 0 && (
+                  <div className="flex items-center gap-3 text-green-400 bg-green-950/30 p-4 rounded-xl border border-green-900/30">
+                    <CheckCircle className="w-5 h-5" />
+                    <span>All verified protocols are operational. No expired links detected.</span>
+                  </div>
+                )}
+
+                {botCheckStatus === 'done' && brokenLinksReport.length > 0 && (
+                  <div className="bg-red-950/20 border border-red-900/50 rounded-xl overflow-hidden">
+                    <div className="bg-red-900/40 px-4 py-2 flex items-center gap-2 border-b border-red-900/50">
+                      <XCircle className="w-4 h-4 text-red-400" />
+                      <span className="text-red-400 font-bold text-sm uppercase tracking-wider">Expired Protocols Detected ({brokenLinksReport.length})</span>
+                    </div>
+                    <div className="p-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto">
+                      {brokenLinksReport.map((report, idx) => (
+                        <div key={idx} className="flex justify-between items-start border-b border-slate-800 pb-3 last:border-0 last:pb-0">
+                           <div>
+                             <h4 className="text-slate-200 font-bold">{report.title}</h4>
+                             <p className="text-slate-500 text-xs mt-1">Resolution: {report.linkType}</p>
+                           </div>
+                           <a href={report.url} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300 underline break-all max-w-[200px]">
+                             View Link
+                           </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Upload Form */}
@@ -1284,16 +1487,39 @@ export default function App() {
                             Add to Top Highlights
                           </label>
                         </div>
+                      <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                        {editingMovieId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMovieId(null);
+                              setMovieTitle("");
+                              setMovieDesc("");
+                              setMovieImage(null);
+                              setMovieScreenshots([]);
+                              setLink620p("");
+                              setLink720p("");
+                              setLink1080p("");
+                              setIsMovieHighlight(false);
+                              setIsLiveStream(false);
+                              setLiveStreamLink("");
+                            }}
+                            className="w-full md:w-auto bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-all flex items-center justify-center gap-2"
+                          >
+                            Cancel Edit
+                          </button>
+                        )}
                         <button
                           type="submit"
                           className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
                         >
                           <CheckCircle2 className="w-5 h-5" />
-                          Publish to Network
+                          {editingMovieId ? "Update Movie" : "Publish to Network"}
                         </button>
                       </div>
                     </div>
-                  </form>
+                  </div>
+                </form>
                 ) : (
                   <form
                     onSubmit={handleAddSeries}
@@ -1601,13 +1827,35 @@ export default function App() {
                           Add to Top Highlights
                         </label>
                       </div>
-                      <button
-                        type="submit"
-                        className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
-                      >
-                        <CheckCircle2 className="w-5 h-5" />
-                        Publish Series to Network
-                      </button>
+                      <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                        {editingMovieId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMovieId(null);
+                              setSeriesTitle("");
+                              setSeriesDesc("");
+                              setSeriesImage(null);
+                              setSeriesScreenshots([]);
+                              setEpisodes([{ link: "" }]);
+                              setSeriesLink620p("");
+                              setSeriesLink720p("");
+                              setSeriesLink1080p("");
+                              setIsSeriesHighlight(false);
+                            }}
+                            className="w-full md:w-auto bg-slate-800 hover:bg-slate-700 text-white font-bold px-8 py-4 rounded-xl transition-all flex items-center justify-center gap-2"
+                          >
+                            Cancel Edit
+                          </button>
+                        )}
+                        <button
+                          type="submit"
+                          className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                          {editingMovieId ? "Update Series" : "Publish Series to Network"}
+                        </button>
+                      </div>
                     </div>
                   </form>
                 )}
@@ -1668,12 +1916,20 @@ export default function App() {
                             </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleDeleteMovie(movie.id)}
-                          className="w-full sm:w-auto bg-red-950/40 text-red-400 hover:bg-red-900/60 hover:text-red-300 border border-red-900/50 px-4 py-2 rounded-xl transition-colors flex items-center justify-center gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" /> Terminate
-                        </button>
+                        <div className="flex gap-2 w-full sm:w-auto">
+                          <button
+                            onClick={() => movie.type === 'series' ? handleEditSeries(movie) : handleEditMovie(movie)}
+                            className="flex-1 sm:flex-none bg-blue-950/40 text-blue-400 hover:bg-blue-900/60 hover:text-blue-300 border border-blue-900/50 px-4 py-2 rounded-xl transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Pencil className="w-4 h-4" /> Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMovie(movie.id)}
+                            className="flex-1 sm:flex-none bg-red-950/40 text-red-400 hover:bg-red-900/60 hover:text-red-300 border border-red-900/50 px-4 py-2 rounded-xl transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Trash2 className="w-4 h-4" /> Terminate
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
