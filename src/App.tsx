@@ -765,7 +765,7 @@ export default function App() {
         link1080p: link1080p ? mediatorUrl : "",
         createdAt: serverTimestamp(),
       });
-
+    } //
       setMovieTitle("");
 
       setMovieTitle("");
