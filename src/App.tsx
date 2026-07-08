@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import {MediatorPage } from './components/MediatorPage';
-  Film,
+import { MediatorPage } from './components/MediatorPage';
+
+import {Film,
   LogOut,
   Settings,
   Lock,
