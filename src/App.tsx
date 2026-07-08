@@ -744,19 +744,28 @@ export default function App() {
           category: movieCategory,
           screenshots: movieScreenshots,
           type: "movie",
-          link620p,
-          link720p,
-          link1080p,
-          ratings: [],
-          createdAt: new Date(),
-          isHighlight: isMovieHighlight,
-          isLiveStream,
-          liveStreamLink,
-        };
+          // 🎯 Asli movie aur live stream links ko memory mein save kar rahe hain
+      if (link620p) localStorage.setItem('movieUrl_620p', link620p);
+      if (link720p) localStorage.setItem('movieUrl_720p', link720p);
+      if (link1080p) localStorage.setItem('movieUrl_1080p', link1080p);
+      if (liveStreamLink) localStorage.setItem('movieUrl_live', liveStreamLink);
 
-        await addDoc(collection(db, "movies"), newMovie);
-        setAdminSuccess("Movie published successfully!");
-      }
+      // Naye page ka raasta
+      const mediatorUrl = `${window.location.origin}/download-gateway`;
+      
+      // Database mein bhej rahe hain (Sab par mediator page laga diya)
+      await addDoc(collection(db, "movies"), {
+        ...newMovie,
+        isLiveStream: isLiveStream,
+        
+        // Agar live stream link hai, toh use bhi mediator page par bhej do
+        liveStreamLink: liveStreamLink ? mediatorUrl : "",
+        
+        // Saare movie links par bhi mediator page rahega
+        link620p: link620p ? mediatorUrl : "",
+        link720p: link720p ? mediatorUrl : "",
+        link1080p: link1080p ? mediatorUrl : ""
+      });
 
       setMovieTitle("");
       setMovieDesc("");
