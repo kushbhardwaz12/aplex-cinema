@@ -735,17 +735,18 @@ export default function App() {
         setAdminSuccess("Movie updated successfully!");
         setEditingMovieId(null);
       } else {
-        const newMovie = {
-          title: movieTitle,
-          description: movieDesc,
-          image:
-            movieImage ||
-            "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
-          category: movieCategory,
-          screenshots: movieScreenshots,
-          type: "movie",
-          // 🎯 Asli movie aur live stream links ko memory mein save kar rahe hain
-      // 1. 🎯 Pehle object ke BAAHAR hi saare links ko memory mein save kar lo (Object se upar)
+    
+      
+           const newMovie = {
+        title: movieTitle,
+        description: movieDesc,
+        image: movieImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+        category: movieCategory,
+        screenshots: movieScreenshots,
+        type: "movie",
+      }; // 👈 Yahan bracket band hona zaroori tha, jo maine kar diya!
+
+      // 1. 🎯 Saare asli links ko memory mein save karo (Object ke baahar)
       if (link620p) localStorage.setItem('movieUrl_620p', link620p);
       if (link720p) localStorage.setItem('movieUrl_720p', link720p);
       if (link1080p) localStorage.setItem('movieUrl_1080p', link1080p);
@@ -754,21 +755,18 @@ export default function App() {
       // Naye page ka raasta
       const mediatorUrl = `${window.location.origin}/download-gateway`;
 
-      // 2. 🎯 Ab database ke liye data tayyar karo aur bhej do
+      // 2. 🎯 Ab database ke liye data bhej do
       await addDoc(collection(db, "movies"), {
-        title: movieTitle,
-        desc: movieDesc,
-        type: "movie", // 👈 Jo tumhaari line 746 par tha
+        ...newMovie, // Isse title, description, image wagera sab automatic chala jayega
         isLiveStream: isLiveStream,
-        
-        // Links ki jagah mediator url chala jayega
         liveStreamLink: liveStreamLink ? mediatorUrl : "",
         link620p: link620p ? mediatorUrl : "",
         link720p: link720p ? mediatorUrl : "",
         link1080p: link1080p ? mediatorUrl : "",
-        
-        createdAt: serverTimestamp(), // ya jo bhi tumhara purana code tha
+        createdAt: serverTimestamp(),
       });
+
+      setMovieTitle("");
 
       setMovieTitle("");
       setMovieDesc("");
