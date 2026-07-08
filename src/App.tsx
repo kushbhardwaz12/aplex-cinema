@@ -745,6 +745,7 @@ export default function App() {
           screenshots: movieScreenshots,
           type: "movie",
           // 🎯 Asli movie aur live stream links ko memory mein save kar rahe hain
+      // 1. 🎯 Pehle object ke BAAHAR hi saare links ko memory mein save kar lo (Object se upar)
       if (link620p) localStorage.setItem('movieUrl_620p', link620p);
       if (link720p) localStorage.setItem('movieUrl_720p', link720p);
       if (link1080p) localStorage.setItem('movieUrl_1080p', link1080p);
@@ -752,19 +753,21 @@ export default function App() {
 
       // Naye page ka raasta
       const mediatorUrl = `${window.location.origin}/download-gateway`;
-      
-      // Database mein bhej rahe hain (Sab par mediator page laga diya)
+
+      // 2. 🎯 Ab database ke liye data tayyar karo aur bhej do
       await addDoc(collection(db, "movies"), {
-        ...newMovie,
+        title: movieTitle,
+        desc: movieDesc,
+        type: "movie", // 👈 Jo tumhaari line 746 par tha
         isLiveStream: isLiveStream,
         
-        // Agar live stream link hai, toh use bhi mediator page par bhej do
+        // Links ki jagah mediator url chala jayega
         liveStreamLink: liveStreamLink ? mediatorUrl : "",
-        
-        // Saare movie links par bhi mediator page rahega
         link620p: link620p ? mediatorUrl : "",
         link720p: link720p ? mediatorUrl : "",
-        link1080p: link1080p ? mediatorUrl : ""
+        link1080p: link1080p ? mediatorUrl : "",
+        
+        createdAt: serverTimestamp(), // ya jo bhi tumhara purana code tha
       });
 
       setMovieTitle("");
