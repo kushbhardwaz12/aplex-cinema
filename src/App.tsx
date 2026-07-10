@@ -1,7 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
-import { MediatorPage } from './components/MediatorPage';
-
-import {Film,
+import React, {  useState, useRef, useEffect  } from "react";
+import {
+  Film,
   LogOut,
   Settings,
   Lock,
@@ -39,6 +38,7 @@ import {
   addDoc,
   deleteDoc,
   doc,
+  setDoc,
   onSnapshot,
   updateDoc,
   query,
@@ -47,6 +47,8 @@ import {
 } from "firebase/firestore";
 import { signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 import { db, auth, googleProvider } from "./firebase";
+import { AdsterraAd } from "./components/AdsterraAd";
+import { MediatorPage } from "./pages/MediatorPage";
 
 // --- Types ---
 interface Comment {
@@ -120,11 +122,41 @@ const ImageWithSkeleton = ({
 export default function App() {
   // Navigation & Auth State
   const [screen, setScreen] = useState<
-    "login" | "pin_check" | "admin_dashboard" | "public_home" | "movie_detail"
+    "login" | "pin_check" | "admin_dashboard" | "public_home" | "movie_detail" | "mediator"
   >("public_home");
+  const [mediatorTarget, setMediatorTarget] = useState<{ id: string; quality: string } | null>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (screen !== "public_home") return;
+    const interval = setInterval(() => {
+      if (sliderRef.current) {
+        const { scrollLeft, scrollWidth, clientWidth } = sliderRef.current;
+        const isAtEnd = scrollLeft + clientWidth >= scrollWidth - 10;
+        
+        if (isAtEnd) {
+          sliderRef.current.scrollTo({ left: 0, behavior: "smooth" });
+        } else {
+          sliderRef.current.scrollBy({ left: clientWidth * 0.8, behavior: "smooth" });
+        }
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [screen]);
+
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+
+  const DIRECT_LINK = "https://www.effectivecpmnetwork.com/tuu7ayb7n?key=26cd331c63229d8724baf9fcb37d894b";
+
+  const triggerAdOverlay = (nextAction: () => void, isImageClick: boolean = false) => {
+    // Open Adsterra Direct Link in new tab
+    window.open(DIRECT_LINK, "_blank");
+    // Proceed with the action in current tab
+    nextAction();
+  };
+
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
   const [showLoginReminderPopup, setShowLoginReminderPopup] = useState(false);
   const [newMovieNotice, setNewMovieNotice] = useState<string | null>(null);
@@ -137,6 +169,38 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("watchLaterList", JSON.stringify(watchLaterList));
   }, [watchLaterList]);
+
+  // Global Link Interceptor for Mediator
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      
+      // Image ad interceptor
+      if (screen === "movie_detail" && (target.tagName === 'IMG' || target.closest('img'))) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerAdOverlay(() => {}, true);
+        return;
+      }
+
+      const anchor = target.closest('a');
+      if (anchor) {
+        const rawHref = anchor.getAttribute('href');
+        if (rawHref && rawHref.startsWith("mediator:")) {
+          e.preventDefault();
+          triggerAdOverlay(() => {
+            const parts = rawHref.split(":");
+            if (parts.length >= 3) {
+              setMediatorTarget({ id: parts[1], quality: parts[2] });
+              setScreen("mediator");
+            }
+          });
+        }
+      }
+    };
+    document.addEventListener("click", handleClick, true); // Use capture phase to intercept early
+    return () => document.removeEventListener("click", handleClick, true);
+  }, [screen]);
 
   const toggleWatchLater = (movieId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -355,6 +419,21 @@ export default function App() {
   }, [selectedMovie]);
 
   // --- Handlers ---
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, rawHref: string) => {
+    e.preventDefault();
+    triggerAdOverlay(() => {
+      if (rawHref.startsWith("mediator:")) {
+        const parts = rawHref.split(":");
+        if (parts.length >= 3) {
+          setMediatorTarget({ id: parts[1], quality: parts[2] });
+          setScreen("mediator");
+        }
+      } else {
+        window.open(rawHref, "_blank");
+      }
+    });
+  };
+
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || !selectedMovie) return;
@@ -583,6 +662,13 @@ export default function App() {
       }
 
       if (editingMovieId) {
+        if (seriesLink620p) localStorage.setItem(`movieUrl_620p_${editingMovieId}`, seriesLink620p);
+        if (seriesLink720p) localStorage.setItem(`movieUrl_720p_${editingMovieId}`, seriesLink720p);
+        if (seriesLink1080p) localStorage.setItem(`movieUrl_1080p_${editingMovieId}`, seriesLink1080p);
+        validEpisodes.forEach((ep, idx) => {
+            localStorage.setItem(`movieUrl_ep${idx}_${editingMovieId}`, ep.link);
+        });
+
         const updateData = {
           title: seriesTitle,
           description: seriesDesc,
@@ -592,17 +678,27 @@ export default function App() {
           episodes: validEpisodes.map((ep, idx) => ({
             id: Date.now() + idx,
             title: `Episode ${idx + 1}`,
-            link: ep.link,
+            link: `mediator:${editingMovieId}:ep${idx}`,
           })),
-          link620p: seriesLink620p,
-          link720p: seriesLink720p,
-          link1080p: seriesLink1080p,
+          link620p: seriesLink620p ? `mediator:${editingMovieId}:620p` : "",
+          link720p: seriesLink720p ? `mediator:${editingMovieId}:720p` : "",
+          link1080p: seriesLink1080p ? `mediator:${editingMovieId}:1080p` : "",
           isHighlight: isSeriesHighlight,
         };
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Web Series updated successfully!");
         setEditingMovieId(null);
       } else {
+        const docRef = doc(collection(db, "movies"));
+        const docId = docRef.id;
+        
+        if (seriesLink620p) localStorage.setItem(`movieUrl_620p_${docId}`, seriesLink620p);
+        if (seriesLink720p) localStorage.setItem(`movieUrl_720p_${docId}`, seriesLink720p);
+        if (seriesLink1080p) localStorage.setItem(`movieUrl_1080p_${docId}`, seriesLink1080p);
+        validEpisodes.forEach((ep, idx) => {
+            localStorage.setItem(`movieUrl_ep${idx}_${docId}`, ep.link);
+        });
+
         const newSeries = {
           type: "series",
           title: seriesTitle,
@@ -615,17 +711,17 @@ export default function App() {
           episodes: validEpisodes.map((ep, idx) => ({
             id: Date.now() + idx,
             title: `Episode ${idx + 1}`,
-            link: ep.link,
+            link: `mediator:${docId}:ep${idx}`,
           })),
-          link620p: seriesLink620p,
-          link720p: seriesLink720p,
-          link1080p: seriesLink1080p,
+          link620p: seriesLink620p ? `mediator:${docId}:620p` : "",
+          link720p: seriesLink720p ? `mediator:${docId}:720p` : "",
+          link1080p: seriesLink1080p ? `mediator:${docId}:1080p` : "",
           ratings: [],
           createdAt: new Date(),
           isHighlight: isSeriesHighlight,
         };
 
-        await addDoc(collection(db, "movies"), newSeries);
+        await setDoc(docRef, newSeries);
         setAdminSuccess("Web Series published successfully!");
       }
 
@@ -718,55 +814,58 @@ export default function App() {
       }
 
       if (editingMovieId) {
+        if (link620p) localStorage.setItem(`movieUrl_620p_${editingMovieId}`, link620p);
+        if (link720p) localStorage.setItem(`movieUrl_720p_${editingMovieId}`, link720p);
+        if (link1080p) localStorage.setItem(`movieUrl_1080p_${editingMovieId}`, link1080p);
+        if (liveStreamLink) localStorage.setItem(`movieUrl_live_${editingMovieId}`, liveStreamLink);
+
         const updateData = {
           title: movieTitle,
           description: movieDesc,
           image: movieImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
           category: movieCategory,
           screenshots: movieScreenshots,
-          link620p,
-          link720p,
-          link1080p,
+          link620p: link620p ? `mediator:${editingMovieId}:620p` : "",
+          link720p: link720p ? `mediator:${editingMovieId}:720p` : "",
+          link1080p: link1080p ? `mediator:${editingMovieId}:1080p` : "",
           isHighlight: isMovieHighlight,
           isLiveStream,
-          liveStreamLink,
+          liveStreamLink: liveStreamLink ? `mediator:${editingMovieId}:live` : "",
         };
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Movie updated successfully!");
         setEditingMovieId(null);
       } else {
-    
-      
-           const newMovie = {
-        title: movieTitle,
-        description: movieDesc,
-        image: movieImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
-        category: movieCategory,
-        screenshots: movieScreenshots,
-        type: "movie",
-      }; // 👈 Yahan bracket band hona zaroori tha, jo maine kar diya!
+        const docRef = doc(collection(db, "movies"));
+        const docId = docRef.id;
 
-      // 1. 🎯 Saare asli links ko memory mein save karo (Object ke baahar)
-      if (link620p) localStorage.setItem('movieUrl_620p', link620p);
-      if (link720p) localStorage.setItem('movieUrl_720p', link720p);
-      if (link1080p) localStorage.setItem('movieUrl_1080p', link1080p);
-      if (liveStreamLink) localStorage.setItem('movieUrl_live', liveStreamLink);
+        if (link620p) localStorage.setItem(`movieUrl_620p_${docId}`, link620p);
+        if (link720p) localStorage.setItem(`movieUrl_720p_${docId}`, link720p);
+        if (link1080p) localStorage.setItem(`movieUrl_1080p_${docId}`, link1080p);
+        if (liveStreamLink) localStorage.setItem(`movieUrl_live_${docId}`, liveStreamLink);
 
-      // Naye page ka raasta
-      const mediatorUrl = `${window.location.origin}/download-gateway`;
+        const newMovie = {
+          title: movieTitle,
+          description: movieDesc,
+          image:
+            movieImage ||
+            "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+          category: movieCategory,
+          screenshots: movieScreenshots,
+          type: "movie",
+          link620p: link620p ? `mediator:${docId}:620p` : "",
+          link720p: link720p ? `mediator:${docId}:720p` : "",
+          link1080p: link1080p ? `mediator:${docId}:1080p` : "",
+          ratings: [],
+          createdAt: new Date(),
+          isHighlight: isMovieHighlight,
+          isLiveStream,
+          liveStreamLink: liveStreamLink ? `mediator:${docId}:live` : "",
+        };
 
-      // 2. 🎯 Ab database ke liye data bhej do
-      await addDoc(collection(db, "movies"), {
-        ...newMovie, // Isse title, description, image wagera sab automatic chala jayega
-        isLiveStream: isLiveStream,
-        liveStreamLink: liveStreamLink ? mediatorUrl : "",
-        link620p: link620p ? mediatorUrl : "",
-        link720p: link720p ? mediatorUrl : "",
-        link1080p: link1080p ? mediatorUrl : "",
-        createdAt: serverTimestamp(),
-      });
-    } //
-      setMovieTitle("");
+        await setDoc(docRef, newMovie);
+        setAdminSuccess("Movie published successfully!");
+      }
 
       setMovieTitle("");
       setMovieDesc("");
@@ -840,6 +939,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 font-sans text-slate-50 selection:bg-red-500/30">
+      <AdsterraAd type="popunder" isMobile={window.innerWidth <= 768} />
       {/* NAVBAR */}
       <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1032,6 +1132,7 @@ export default function App() {
                                 ) : (
                                   <Eye className="h-5 w-5" />
                                 )}
+                            
                               </button>
                             </div>
                           </motion.div>
@@ -1907,8 +2008,10 @@ export default function App() {
                                   Live
                                 </span>
                               )}
-                            </h4>
-                            <p className="text-xs text-slate-500 font-mono">
+                            
+
+          
+                            </h4><p className="text-xs text-slate-500 font-mono">
                               NODE_ID: {movie.id}
                             </p>
                             <div className="flex gap-2 mt-2">
@@ -1917,16 +2020,19 @@ export default function App() {
                                   620p
                                 </span>
                               )}
+                            
                               {movie.link720p && (
                                 <span className="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded border border-slate-700">
                                   720p
                                 </span>
                               )}
+                            
                               {movie.link1080p && (
                                 <span className="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded border border-slate-700">
                                   1080p
                                 </span>
                               )}
+                            
                             </div>
                           </div>
                         </div>
@@ -1984,7 +2090,7 @@ export default function App() {
                         </span> Top Highlights
                       </h2>
                     </div>
-                    <div className="flex overflow-x-auto gap-1 pb-4 pt-2 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    <div ref={sliderRef} className="flex overflow-x-auto gap-1 pb-4 pt-2 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                       {movies
                         .filter((m) => m.isHighlight)
                         .slice(0, 10)
@@ -1995,8 +2101,10 @@ export default function App() {
                             transition={{ delay: index * 0.05 }}
                             key={`highlight-${movie.id}`}
                             onClick={() => {
-                              setSelectedMovie(movie);
-                              setScreen("movie_detail");
+                              triggerAdOverlay(() => {
+                                setSelectedMovie(movie);
+                                setScreen("movie_detail");
+                              });
                             }}
                             className="w-[110px] sm:w-[130px] md:w-[150px] lg:w-[170px] xl:w-[190px] aspect-[2/3] bg-slate-900 cursor-pointer relative group flex-shrink-0 snap-center transition-all duration-300 hover:scale-[1.03] hover:z-10 shadow-lg overflow-hidden rounded-xl"
                           >
@@ -2018,40 +2126,20 @@ export default function App() {
                 )}
 
               {/* Notification Bar */}
-              <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 mt-0 mb-8">
-                <div className="bg-gradient-to-r from-red-950/20 via-slate-900/60 to-slate-900/20 border border-slate-800 rounded-lg py-3 px-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center justify-center text-center">
-                  <p className="text-slate-300 text-xs sm:text-sm md:text-base font-medium">
-                    <span className="text-yellow-500 font-bold mr-1 sm:mr-2 text-base sm:text-lg">
-                      ×
-                    </span>
-                    <span className="text-red-500">
-                      Avoid FAKE Copies of APLEX CINEMA on Google,
-                    </span>{" "}
-                    Always use{" "}
-                    <a
-                      href="#"
-                      className="text-red-500 hover:text-red-400 transition-colors"
-                    >
-                      APLEXCINEMA.Tv
-                    </a>{" "}
-                    |{" "}
-                    <a
-                      href="#"
-                      className="text-red-500 hover:text-red-400 transition-colors"
-                    >
-                      APLEXCINEMA.med
-                    </a>{" "}
-                    With VPN to get Official Domain &amp; Follow us on{" "}
-                    <a
-                      href="#"
-                      className="text-red-500 hover:text-red-400 transition-colors inline-flex items-center gap-1"
-                    >
-                      WhatsApp{" "}
-                      <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 bg-white rounded-full" />
-                    </a>{" "}
-                    For Latest Updates.
-                  </p>
-                </div>
+              
+              
+              <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8 flex justify-center"> 
+                 {window.innerWidth <= 768 ? (
+                  <div className="flex flex-col gap-4 items-center w-full">
+                    <AdsterraAd type="banner300x250" isMobile={true} />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4 items-center justify-items-center w-full">
+                    <div className="w-full"><AdsterraAd type="banner300x250" isMobile={false} /></div>
+                    <div className="w-full"><AdsterraAd type="banner300x250" isMobile={false} /></div>
+                    <div className="w-full"><AdsterraAd type="banner300x250" isMobile={false} /></div>
+                  </div>
+                )}
               </div>
 
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
@@ -2114,8 +2202,10 @@ export default function App() {
                           transition={{ delay: index * 0.05 }}
                           key={item.id}
                           onClick={() => {
-                            setSelectedMovie(item);
-                            setScreen("movie_detail");
+                            triggerAdOverlay(() => {
+                              setSelectedMovie(item);
+                              setScreen("movie_detail");
+                            });
                           }}
                           className="group cursor-pointer bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 hover:border-red-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(239,68,68,0.15)] flex flex-col relative"
                         >
@@ -2147,6 +2237,8 @@ export default function App() {
                                   Live Stream
                                 </a>
                               )}
+                            
+
                             </div>
                             <div className="flex items-center gap-2 mb-1">
                               {item.category && (
@@ -2154,6 +2246,8 @@ export default function App() {
                                   {Array.isArray(item.category) ? item.category.join(", ") : item.category}
                                 </div>
                               )}
+                            
+
                               <div className="flex items-center gap-1 text-xs text-yellow-400 bg-slate-950/50 px-1.5 py-0.5 rounded">
                                 <Star className="w-3 h-3 fill-yellow-400" />
                                 <span>
@@ -2182,20 +2276,28 @@ export default function App() {
                                       title="620p Available"
                                     />
                                   )}
+                            
+
                                   {item.link720p && (
                                     <span
                                       className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_5px_rgba(59,130,246,0.8)]"
                                       title="720p Available"
                                     />
                                   )}
+                            
+
                                   {item.link1080p && (
                                     <span
                                       className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_5px_rgba(168,85,247,0.8)]"
                                       title="1080p Available"
                                     />
                                   )}
+                            
+
                                 </div>
                               )}
+                            
+
                               <button 
                                 onClick={(e) => toggleWatchLater(item.id, e)}
                                 className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded bg-slate-950/50 hover:bg-slate-800 transition-colors"
@@ -2205,6 +2307,8 @@ export default function App() {
                                 ) : (
                                   <><Clock className="w-3.5 h-3.5 text-slate-400" /> <span className="text-slate-300">Watch Later</span></>
                                 )}
+                            
+
                               </button>
                             </div>
                           </div>
@@ -2236,12 +2340,16 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="w-full max-w-[1600px] mx-auto px-4 py-8 sm:px-6 lg:px-12"
             >
-              <button
-                onClick={() => setScreen("public_home")}
-                className="mb-8 inline-flex items-center gap-2 text-slate-400 hover:text-red-400 transition-colors font-medium bg-slate-900 px-4 py-2 rounded-full border border-slate-800 hover:border-red-900 shadow-md"
-              >
-                <ArrowLeft className="w-5 h-5" /> Return to Manifest
-              </button>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                <button
+                  onClick={() => setScreen("public_home")}
+                  className="inline-flex items-center gap-2 text-slate-400 hover:text-red-400 transition-colors font-medium bg-slate-900 px-4 py-2 rounded-full border border-slate-800 hover:border-red-900 shadow-md"
+                >
+                  <ArrowLeft className="w-5 h-5" /> Return to Manifest
+                </button>
+              </div>
+              
+
 
               <div className="flex flex-col gap-10">
                 {/* UP: Poster & Description Layout */}
@@ -2336,6 +2444,8 @@ export default function App() {
                                 ) : (
                                   <Star className="w-4 h-4 text-slate-600 hover:text-yellow-400 transition-colors" />
                                 )}
+                            
+
                               </button>
                             );
                           })}
@@ -2352,9 +2462,9 @@ export default function App() {
                     <div className="bg-slate-900/60 rounded-2xl p-6 md:p-8 border border-slate-800 backdrop-blur-md h-full shadow-[0_0_20px_rgba(0,0,0,0.3)]">
                       <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />{" "}
-                        Narrative Context
-                      </h4>
-                      <p className="text-slate-300 leading-relaxed text-lg font-light">
+                        Narrative Context</h4>
+    
+                      <p className="text-slate-300 leading-relaxed text-lg font-light mb-6">
                         {selectedMovie.description}
                       </p>
                     </div>
@@ -2370,8 +2480,8 @@ export default function App() {
                       className="w-full pt-4"
                     >
                       <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-6 flex items-center gap-2 border-b border-slate-800 pb-2">
-                        <ImageIcon className="w-5 h-5" /> Quality Proof / Assets
-                      </h4>
+                        <ImageIcon className="w-5 h-5" /> Quality Proof / Assets</h4>
+    
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         {selectedMovie.screenshots.map((img, i) => (
                           <div
@@ -2396,8 +2506,21 @@ export default function App() {
                   className="w-full border-t border-slate-800/80 pt-10"
                 >
                   <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <Download className="w-5 h-5" /> Extraction Protocols
-                  </h4>
+                    <Download className="w-5 h-5" /> Extraction Protocols</h4>
+                  <div className="w-full flex justify-center mb-8 bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden py-4">
+                    {window.innerWidth <= 768 ? (
+                  <div className="flex flex-col gap-4 items-center w-full">
+                    <AdsterraAd type="banner300x250" isMobile={true} />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4 items-center justify-items-center w-full">
+                    <div className="w-full"><AdsterraAd type="banner300x250" isMobile={false} /></div>
+                    <div className="w-full"><AdsterraAd type="banner300x250" isMobile={false} /></div>
+                    <div className="w-full"><AdsterraAd type="banner300x250" isMobile={false} /></div>
+                  </div>
+                )}
+                  </div>
+
 
                   {selectedMovie.type === "series" ? (
                     <div className="flex flex-col gap-8">
@@ -2411,10 +2534,7 @@ export default function App() {
                           </h5>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {selectedMovie.link620p && (
-                              <a
-                                href={selectedMovie.link620p}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2422,13 +2542,10 @@ export default function App() {
                                   Download 620p
                                 </span>
                                 <Download className="w-5 h-5 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                              </a>
+                              </button>
                             )}
                             {selectedMovie.link720p && (
-                              <a
-                                href={selectedMovie.link720p}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-blue-900/50 hover:border-blue-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2436,13 +2553,10 @@ export default function App() {
                                   Download 720p
                                 </span>
                                 <Download className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors relative z-10" />
-                              </a>
+                              </button>
                             )}
                             {selectedMovie.link1080p && (
-                              <a
-                                href={selectedMovie.link1080p}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2450,7 +2564,7 @@ export default function App() {
                                   Download 1080p
                                 </span>
                                 <Download className="w-5 h-5 text-slate-500 group-hover:text-purple-400 transition-colors relative z-10" />
-                              </a>
+                              </button>
                             )}
                           </div>
                         </div>
@@ -2465,11 +2579,9 @@ export default function App() {
                           {selectedMovie.episodes &&
                           selectedMovie.episodes.length > 0 ? (
                             selectedMovie.episodes.map((ep, i) => (
-                              <a
+                              <button
                                 key={ep.id}
-                                href={ep.link}
-                                target="_blank"
-                                rel="noreferrer"
+                                onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_episode_' + selectedMovie.id + '_' + ep.id, ep.link || ''); setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id }); setScreen('mediator'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.01]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2482,7 +2594,7 @@ export default function App() {
                                   </span>
                                 </div>
                                 <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                              </a>
+                              </button>
                             ))
                           ) : (
                             <div className="col-span-full border border-red-900/50 bg-red-950/30 p-4 rounded-xl text-red-400 flex items-center gap-2">
@@ -2496,10 +2608,7 @@ export default function App() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {selectedMovie.link620p && (
-                        <a
-                          href={selectedMovie.link620p}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2507,14 +2616,11 @@ export default function App() {
                             Download 620p
                           </span>
                           <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </a>
+                        </button>
                       )}
 
                       {selectedMovie.link720p && (
-                        <a
-                          href={selectedMovie.link720p}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(59,130,246,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-600/0 via-red-600/10 to-red-600/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2522,14 +2628,11 @@ export default function App() {
                             Download 720p
                           </span>
                           <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </a>
+                        </button>
                       )}
 
                       {selectedMovie.link1080p && (
-                        <a
-                          href={selectedMovie.link1080p}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(168,85,247,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2537,7 +2640,7 @@ export default function App() {
                             Download 1080p
                           </span>
                           <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </a>
+                        </button>
                       )}
 
                       {!selectedMovie.link620p &&
@@ -2559,8 +2662,8 @@ export default function App() {
                   className="w-full border-t border-slate-800/80 pt-10"
                 >
                   <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5" /> Discussion Board
-                  </h4>
+                    <MessageSquare className="w-5 h-5" /> Discussion Board</h4>
+
 
                   <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
                     <form onSubmit={handleAddComment} className="mb-8 relative">
@@ -2620,8 +2723,23 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+          {/* 6. MEDIATOR SCREEN */}
+          {screen === "mediator" && mediatorTarget && (
+             <motion.div
+                key="mediator"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="w-full relative z-50"
+             >
+                <MediatorPage movieId={mediatorTarget.id} quality={mediatorTarget.quality} />
+             </motion.div>
+          )}
         </AnimatePresence>
       </main>
+
+
 
       {/* Notification Popup */}
       <AnimatePresence>
