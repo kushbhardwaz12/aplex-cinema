@@ -150,10 +150,21 @@ export default function App() {
 
   const DIRECT_LINK = "https://www.effectivecpmnetwork.com/tuu7ayb7n?key=26cd331c63229d8724baf9fcb37d894b";
 
-  const triggerAdOverlay = (nextAction: () => void, isImageClick: boolean = false) => {
-    // Open Adsterra Direct Link in new tab
-    window.open(DIRECT_LINK, "_blank");
-    // Proceed with the action in current tab
+  const [adTriggeredForMovies, setAdTriggeredForMovies] = useState<Set<string>>(new Set());
+  const triggerAdOverlay = (nextAction: () => void, movieId?: string) => {
+    if (screen === "admin_dashboard") {
+      nextAction();
+      return;
+    }
+    
+    if (movieId) {
+      if (!adTriggeredForMovies.has(movieId)) {
+        window.open(DIRECT_LINK, "_blank");
+        setAdTriggeredForMovies(prev => new Set(prev).add(movieId));
+      }
+    } else {
+      window.open(DIRECT_LINK, "_blank");
+    }
     nextAction();
   };
 
@@ -170,31 +181,24 @@ export default function App() {
     localStorage.setItem("watchLaterList", JSON.stringify(watchLaterList));
   }, [watchLaterList]);
 
+
+
+
   // Global Link Interceptor for Mediator
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       
-      // Image ad interceptor
-      if (screen === "movie_detail" && (target.tagName === 'IMG' || target.closest('img'))) {
-        e.preventDefault();
-        e.stopPropagation();
-        triggerAdOverlay(() => {}, true);
-        return;
-      }
-
       const anchor = target.closest('a');
       if (anchor) {
         const rawHref = anchor.getAttribute('href');
         if (rawHref && rawHref.startsWith("mediator:")) {
           e.preventDefault();
-          triggerAdOverlay(() => {
-            const parts = rawHref.split(":");
-            if (parts.length >= 3) {
-              setMediatorTarget({ id: parts[1], quality: parts[2] });
-              setScreen("mediator");
-            }
-          });
+          const parts = rawHref.split(":");
+          if (parts.length >= 3) {
+            setMediatorTarget({ id: parts[1], quality: parts[2] });
+            setScreen("mediator");
+          }
         }
       }
     };
@@ -263,6 +267,14 @@ export default function App() {
 
   const [adminError, setAdminError] = useState("");
   const [adminSuccess, setAdminSuccess] = useState("");
+  useEffect(() => {
+    if (adminSuccess) {
+      const timer = setTimeout(() => {
+        setAdminSuccess("");
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [adminSuccess]);
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   
 
@@ -421,17 +433,15 @@ export default function App() {
   // --- Handlers ---
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, rawHref: string) => {
     e.preventDefault();
-    triggerAdOverlay(() => {
-      if (rawHref.startsWith("mediator:")) {
-        const parts = rawHref.split(":");
-        if (parts.length >= 3) {
-          setMediatorTarget({ id: parts[1], quality: parts[2] });
-          setScreen("mediator");
-        }
-      } else {
-        window.open(rawHref, "_blank");
+    if (rawHref.startsWith("mediator:")) {
+      const parts = rawHref.split(":");
+      if (parts.length >= 3) {
+        setMediatorTarget({ id: parts[1], quality: parts[2] });
+        setScreen("mediator");
       }
-    });
+    } else {
+      window.open(rawHref, "_blank");
+    }
   };
 
   const handleAddComment = async (e: React.FormEvent) => {
@@ -485,6 +495,7 @@ export default function App() {
       setPassword("");
       setPin("");
       setScreen("public_home");
+      setShowAdminLoginForm(false);
     } catch (error) {
       console.error("Error signing out:", error);
     }
@@ -939,7 +950,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 font-sans text-slate-50 selection:bg-red-500/30">
-      <AdsterraAd type="popunder" isMobile={window.innerWidth <= 768} />
+      
       {/* NAVBAR */}
       <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1002,6 +1013,7 @@ export default function App() {
                       setEmail("");
                       setPassword("");
                       setPin("");
+                      setShowAdminLoginForm(false);
                     }}
                     className="flex items-center gap-2 text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-all px-5 py-2 rounded-lg shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                   >
@@ -1047,23 +1059,21 @@ export default function App() {
                     <p className="text-sm text-red-200">{loginError}</p>
                   </div>
                 )}
-
-                {showAdminLoginForm && (
-                  <>
+                <>
                     <form onSubmit={handleLogin} className="space-y-5">
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-1">
-                          Admin Username
+                          {showAdminLoginForm ? "Admin Username" : "Email address"}
                         </label>
                         <div className="relative">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <Mail className="h-5 w-5 text-slate-500" />
                           </div>
                           <input
-                            type="text"
+                            type={showAdminLoginForm ? "text" : "email"}
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            placeholder="admin_username"
+                            placeholder={showAdminLoginForm ? "admin_username" : "you@example.com"}
                             className="block w-full pl-10 pr-3 py-3 border border-slate-700/50 rounded-xl bg-slate-950 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all shadow-inner"
                           />
                         </div>
@@ -1132,7 +1142,6 @@ export default function App() {
                                 ) : (
                                   <Eye className="h-5 w-5" />
                                 )}
-                            
                               </button>
                             </div>
                           </motion.div>
@@ -1169,8 +1178,6 @@ export default function App() {
                       </div>
                     </div>
                   </>
-                )}
-
                 <button
                   onClick={handleGoogleLogin}
                   type="button"
@@ -1307,11 +1314,7 @@ export default function App() {
                     {adminError}
                   </div>
                 )}
-                {adminSuccess && (
-                  <div className="bg-green-900/50 border border-green-500/50 text-green-200 px-4 py-3 rounded-lg mb-6">
-                    {adminSuccess}
-                  </div>
-                )}
+                {/* We will move this to a global AnimatePresence overlay so it looks like a phone notification */}
 
                 {activeAdminTab === "movie" ? (
                   <form
@@ -2104,7 +2107,7 @@ export default function App() {
                               triggerAdOverlay(() => {
                                 setSelectedMovie(movie);
                                 setScreen("movie_detail");
-                              });
+                              }, movie.id);
                             }}
                             className="w-[110px] sm:w-[130px] md:w-[150px] lg:w-[170px] xl:w-[190px] aspect-[2/3] bg-slate-900 cursor-pointer relative group flex-shrink-0 snap-center transition-all duration-300 hover:scale-[1.03] hover:z-10 shadow-lg overflow-hidden rounded-xl"
                           >
@@ -2203,9 +2206,9 @@ export default function App() {
                           key={item.id}
                           onClick={() => {
                             triggerAdOverlay(() => {
-                              setSelectedMovie(item);
-                              setScreen("movie_detail");
-                            });
+                                setSelectedMovie(item);
+                                setScreen("movie_detail");
+                              }, item.id);
                           }}
                           className="group cursor-pointer bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 hover:border-red-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(239,68,68,0.15)] flex flex-col relative"
                         >
@@ -2534,7 +2537,7 @@ export default function App() {
                           </h5>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {selectedMovie.link620p && (
-                              <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2545,7 +2548,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link720p && (
-                              <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-blue-900/50 hover:border-blue-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2556,7 +2559,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link1080p && (
-                              <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2608,7 +2611,7 @@ export default function App() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {selectedMovie.link620p && (
-                        <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2620,7 +2623,7 @@ export default function App() {
                       )}
 
                       {selectedMovie.link720p && (
-                        <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(59,130,246,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-600/0 via-red-600/10 to-red-600/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2632,7 +2635,7 @@ export default function App() {
                       )}
 
                       {selectedMovie.link1080p && (
-                        <button onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(168,85,247,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
