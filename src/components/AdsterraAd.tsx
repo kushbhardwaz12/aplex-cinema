@@ -10,7 +10,7 @@ export function AdsterraAd({ type, isMobile }: AdsterraAdProps) {
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    if (type === 'popunder') {
+    if (type === 'popunder' && !isMobile) {
       const script = document.createElement('script');
       script.type = 'text/javascript';
       script.src = '//pl30254578.effectivecpmnetwork.com/36/2f/19/362f19d7e45340004eef28e597400864.js';
@@ -84,11 +84,8 @@ export function AdsterraAd({ type, isMobile }: AdsterraAdProps) {
         const parentWidth = containerRef.current.parentElement?.offsetWidth || containerRef.current.offsetWidth;
         if (parentWidth > 0 && parentWidth < width) {
           setScale(parentWidth / width);
-        } else if (parentWidth > 0) {
-          // Fill the div size horizontally!
-          setScale(parentWidth / width);
         } else {
-          setScale(1);
+          setScale(1); // Do not scale up, just center it. Prevents mobile click issues.
         }
       }
     };
@@ -121,7 +118,7 @@ export function AdsterraAd({ type, isMobile }: AdsterraAdProps) {
             border: 'none', 
             overflow: 'hidden',
           }}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+          
         />
       </div>
     </div>

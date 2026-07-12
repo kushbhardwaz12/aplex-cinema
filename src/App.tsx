@@ -150,21 +150,33 @@ export default function App() {
 
   const DIRECT_LINK = "https://www.effectivecpmnetwork.com/tuu7ayb7n?key=26cd331c63229d8724baf9fcb37d894b";
 
-  const [adTriggeredForMovies, setAdTriggeredForMovies] = useState<Set<string>>(new Set());
-  const triggerAdOverlay = (nextAction: () => void, movieId?: string) => {
+  const [adTriggeredKeys, setAdTriggeredKeys] = useState<Set<string>>(new Set());
+  
+  // type can be 'movie_click' or 'download_click'
+  const triggerAdOverlay = (nextAction: () => void, adKey?: string, type: 'movie_click' | 'download_click' = 'download_click') => {
     if (screen === "admin_dashboard") {
       nextAction();
       return;
     }
     
-    if (movieId) {
-      if (!adTriggeredForMovies.has(movieId)) {
+    const isMobile = window.innerWidth <= 768;
+    
+    // On mobile, DO NOT show popups when clicking a movie on the home screen
+    if (isMobile && type === 'movie_click') {
+      nextAction();
+      return;
+    }
+    
+    // For all other cases (Desktop movie click, or ANY download click)
+    if (adKey) {
+      if (!adTriggeredKeys.has(adKey)) {
         window.open(DIRECT_LINK, "_blank");
-        setAdTriggeredForMovies(prev => new Set(prev).add(movieId));
+        setAdTriggeredKeys(prev => new Set(prev).add(adKey));
       }
     } else {
       window.open(DIRECT_LINK, "_blank");
     }
+    
     nextAction();
   };
 
@@ -2107,7 +2119,7 @@ export default function App() {
                               triggerAdOverlay(() => {
                                 setSelectedMovie(movie);
                                 setScreen("movie_detail");
-                              }, movie.id);
+                              }, movie.id, 'movie_click');
                             }}
                             className="w-[110px] sm:w-[130px] md:w-[150px] lg:w-[170px] xl:w-[190px] aspect-[2/3] bg-slate-900 cursor-pointer relative group flex-shrink-0 snap-center transition-all duration-300 hover:scale-[1.03] hover:z-10 shadow-lg overflow-hidden rounded-xl"
                           >
@@ -2208,7 +2220,7 @@ export default function App() {
                             triggerAdOverlay(() => {
                                 setSelectedMovie(item);
                                 setScreen("movie_detail");
-                              }, item.id);
+                              }, item.id, 'movie_click');
                           }}
                           className="group cursor-pointer bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 hover:border-red-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(239,68,68,0.15)] flex flex-col relative"
                         >
@@ -2537,7 +2549,7 @@ export default function App() {
                           </h5>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {selectedMovie.link620p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2548,7 +2560,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link720p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-blue-900/50 hover:border-blue-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2559,7 +2571,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link1080p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2611,7 +2623,7 @@ export default function App() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {selectedMovie.link620p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2623,7 +2635,7 @@ export default function App() {
                       )}
 
                       {selectedMovie.link720p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(59,130,246,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-600/0 via-red-600/10 to-red-600/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2635,7 +2647,7 @@ export default function App() {
                       )}
 
                       {selectedMovie.link1080p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(168,85,247,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
