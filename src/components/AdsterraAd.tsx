@@ -14,6 +14,7 @@ export function AdsterraAd({ type, isMobile }: AdsterraAdProps) {
       const script = document.createElement('script');
       script.type = 'text/javascript';
       script.src = '//pl30254578.effectivecpmnetwork.com/36/2f/19/362f19d7e45340004eef28e597400864.js';
+      script.onerror = (e) => { if (typeof e !== 'string' && e.preventDefault) e.preventDefault(); };
       document.body.appendChild(script);
       return () => {
         if (document.body.contains(script)) {
@@ -109,6 +110,7 @@ export function AdsterraAd({ type, isMobile }: AdsterraAdProps) {
         }}
       >
         <iframe
+          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
           srcDoc={adHtml}
           width={width}
           height={height}

@@ -124,7 +124,7 @@ export default function App() {
   const [screen, setScreen] = useState<
     "login" | "pin_check" | "admin_dashboard" | "public_home" | "movie_detail" | "mediator"
   >("public_home");
-  const [mediatorTarget, setMediatorTarget] = useState<{ id: string; quality: string } | null>(null);
+  const [mediatorTarget, setMediatorTarget] = useState<{ id: string; quality: string; url?: string } | null>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -438,6 +438,8 @@ export default function App() {
         commentsData.push({ id: doc.id, ...doc.data() } as Comment);
       });
       setComments(commentsData);
+    }, (error) => {
+      console.error("Comments onSnapshot error:", error);
     });
     return () => unsubscribe();
   }, [selectedMovie]);
@@ -701,11 +703,11 @@ export default function App() {
           episodes: validEpisodes.map((ep, idx) => ({
             id: Date.now() + idx,
             title: `Episode ${idx + 1}`,
-            link: `mediator:${editingMovieId}:ep${idx}`,
+            link: ep.link,
           })),
-          link620p: seriesLink620p ? `mediator:${editingMovieId}:620p` : "",
-          link720p: seriesLink720p ? `mediator:${editingMovieId}:720p` : "",
-          link1080p: seriesLink1080p ? `mediator:${editingMovieId}:1080p` : "",
+          link620p: seriesLink620p,
+          link720p: seriesLink720p,
+          link1080p: seriesLink1080p,
           isHighlight: isSeriesHighlight,
         };
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
@@ -734,11 +736,11 @@ export default function App() {
           episodes: validEpisodes.map((ep, idx) => ({
             id: Date.now() + idx,
             title: `Episode ${idx + 1}`,
-            link: `mediator:${docId}:ep${idx}`,
+            link: ep.link,
           })),
-          link620p: seriesLink620p ? `mediator:${docId}:620p` : "",
-          link720p: seriesLink720p ? `mediator:${docId}:720p` : "",
-          link1080p: seriesLink1080p ? `mediator:${docId}:1080p` : "",
+          link620p: seriesLink620p,
+          link720p: seriesLink720p,
+          link1080p: seriesLink1080p,
           ratings: [],
           createdAt: new Date(),
           isHighlight: isSeriesHighlight,
@@ -848,12 +850,12 @@ export default function App() {
           image: movieImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
           category: movieCategory,
           screenshots: movieScreenshots,
-          link620p: link620p ? `mediator:${editingMovieId}:620p` : "",
-          link720p: link720p ? `mediator:${editingMovieId}:720p` : "",
-          link1080p: link1080p ? `mediator:${editingMovieId}:1080p` : "",
+          link620p: link620p,
+          link720p: link720p,
+          link1080p: link1080p,
           isHighlight: isMovieHighlight,
           isLiveStream,
-          liveStreamLink: liveStreamLink ? `mediator:${editingMovieId}:live` : "",
+          liveStreamLink: liveStreamLink,
         };
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Movie updated successfully!");
@@ -876,14 +878,14 @@ export default function App() {
           category: movieCategory,
           screenshots: movieScreenshots,
           type: "movie",
-          link620p: link620p ? `mediator:${docId}:620p` : "",
-          link720p: link720p ? `mediator:${docId}:720p` : "",
-          link1080p: link1080p ? `mediator:${docId}:1080p` : "",
+          link620p: link620p,
+          link720p: link720p,
+          link1080p: link1080p,
           ratings: [],
           createdAt: new Date(),
           isHighlight: isMovieHighlight,
           isLiveStream,
-          liveStreamLink: liveStreamLink ? `mediator:${docId}:live` : "",
+          liveStreamLink: liveStreamLink,
         };
 
         await setDoc(docRef, newMovie);
@@ -967,26 +969,13 @@ export default function App() {
       <nav className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div
+                        <div
               className="flex items-center gap-2 group cursor-pointer"
               onClick={() => setScreen("public_home")}
             >
-              <img
-                src="YOUR_LOGO_IMAGE_URL_HERE"
-                alt="Aplex Cinema"
-                className="h-8 object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                  const textLogo = document.getElementById("text-logo");
-                  if (textLogo) {
-                    textLogo.classList.remove("hidden");
-                    textLogo.classList.add("flex");
-                  }
-                }}
-              />
               <div
                 id="text-logo"
-                className="hidden items-center text-xl font-black tracking-tighter text-white"
+                className="flex items-center text-xl font-black tracking-tighter text-white"
               >
                 APLEX{" "}
                 <span className="text-red-600 font-bold ml-1">CINEMA</span>
@@ -2549,7 +2538,7 @@ export default function App() {
                           </h5>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {selectedMovie.link620p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '620p', url: selectedMovie.link620p }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2560,7 +2549,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link720p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '720p', url: selectedMovie.link720p }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-blue-900/50 hover:border-blue-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2571,7 +2560,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link1080p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '1080p', url: selectedMovie.link1080p }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2596,7 +2585,7 @@ export default function App() {
                             selectedMovie.episodes.map((ep, i) => (
                               <button
                                 key={ep.id}
-                                onClick={(e) => { e.preventDefault(); localStorage.setItem('movieUrl_episode_' + selectedMovie.id + '_' + ep.id, ep.link || ''); setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id }); setScreen('mediator'); }}
+                                onClick={(e) => { e.preventDefault(); setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id, url: ep.link }); setScreen('mediator'); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.01]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2623,7 +2612,7 @@ export default function App() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {selectedMovie.link620p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_620p_' + selectedMovie.id, selectedMovie.link620p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '620p' }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '620p', url: selectedMovie.link620p }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2635,7 +2624,7 @@ export default function App() {
                       )}
 
                       {selectedMovie.link720p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_720p_' + selectedMovie.id, selectedMovie.link720p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '720p' }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '720p', url: selectedMovie.link720p }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(59,130,246,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-600/0 via-red-600/10 to-red-600/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2647,7 +2636,7 @@ export default function App() {
                       )}
 
                       {selectedMovie.link1080p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { localStorage.setItem('movieUrl_1080p_' + selectedMovie.id, selectedMovie.link1080p || ''); setMediatorTarget({ id: selectedMovie.id, quality: '1080p' }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '1080p', url: selectedMovie.link1080p }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(168,85,247,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -2748,7 +2737,7 @@ export default function App() {
                 exit={{ opacity: 0 }}
                 className="w-full relative z-50"
              >
-                <MediatorPage movieId={mediatorTarget.id} quality={mediatorTarget.quality} />
+                <MediatorPage movieId={mediatorTarget.id} quality={mediatorTarget.quality} url={mediatorTarget.url} />
              </motion.div>
           )}
         </AnimatePresence>

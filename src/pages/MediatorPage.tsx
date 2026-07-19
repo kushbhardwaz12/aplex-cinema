@@ -1,22 +1,72 @@
 import React, { useEffect, useState } from 'react';
 import { AdsterraAd } from '../components/AdsterraAd';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface MediatorPageProps {
   movieId: string;
   quality: string;
+  url?: string;
 }
 
-export function MediatorPage({ movieId, quality }: MediatorPageProps) {
+export function MediatorPage({ movieId, quality, url }: MediatorPageProps) {
   const [countdown, setCountdown] = useState(15);
   const [rawLink, setRawLink] = useState<string | null>(null);
   const isMobile = window.innerWidth <= 768;
 
   useEffect(() => {
-    // Fetch raw link from localStorage
-    const link = localStorage.getItem(`movieUrl_${quality}_${movieId}`);
-    setRawLink(link);
+    let timer: any;
+    
+    const fetchLink = async () => {
+      let link = url;
+      // If no url provided, or it's an old mediator string, try local storage first
+      if (!link || link.startsWith('mediator:')) {
+        link = localStorage.getItem(`movieUrl_${quality}_${movieId}`);
+        if (!link && quality.startsWith('episode_')) {
+          const epId = quality.replace('episode_', '');
+          link = localStorage.getItem(`movieUrl_${epId}_${movieId}`);
+          if (!link && epId.startsWith('ep')) {
+             // Try just ep index, although epId is probably already 'ep0'
+             link = localStorage.getItem(`movieUrl_${epId}_${movieId}`);
+          }
+        }
+        
+        // If still not found in local storage, fetch from Firestore
+        if (!link) {
+          try {
+            const docRef = doc(db, "movies", movieId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              const data = docSnap.data();
+              // Quality could be 620p, 720p, 1080p, live, or episode_ID
+              if (quality === '620p') link = data.link620p;
+              else if (quality === '720p') link = data.link720p;
+              else if (quality === '1080p') link = data.link1080p;
+              else if (quality === 'live') link = data.liveStreamLink;
+              else if (quality.startsWith('episode_')) {
+                const epId = quality.replace('episode_', '');
+                const ep = data.episodes?.find((e: any) => e.id === epId || e.id.toString() === epId);
+                if (ep) link = ep.link;
+              }
+              
+              if (link && link.startsWith('mediator:')) {
+                // If it's STILL a mediator string in DB, we are out of luck
+                // This means it was an old movie and the actual link was never saved to DB.
+                link = null;
+              }
+            }
+          } catch (e) {
+            console.error("Error fetching link:", e);
+          }
+        }
+      }
+      
+      setRawLink(link || null);
+    };
 
-    const timer = setInterval(() => {
+    fetchLink();
+
+    timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
@@ -27,14 +77,9 @@ export function MediatorPage({ movieId, quality }: MediatorPageProps) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [movieId, quality]);
+  }, [movieId, quality, url]);
 
-  const handleDownload = () => {
-    if (rawLink) {
-      window.location.href = rawLink;
-    }
-  };
-
+  
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col relative overflow-hidden font-sans">
       {/* Background Shapes */}
@@ -44,12 +89,7 @@ export function MediatorPage({ movieId, quality }: MediatorPageProps) {
 
       {/* Header */}
       <div className="w-full relative z-10 flex items-center px-6 py-5 border-b border-slate-800 bg-slate-950">
-        <div className="flex gap-[2px] mr-4 flex-wrap w-[22px] h-[22px]">
-          <div className="w-[10px] h-[10px] bg-red-500 rounded-sm"></div>
-          <div className="w-[10px] h-[10px] bg-slate-500 rounded-sm"></div>
-          <div className="w-[10px] h-[10px] bg-slate-700 rounded-sm"></div>
-          <div className="w-[10px] h-[10px] bg-red-800 rounded-sm"></div>
-        </div>
+        <img src="/aplex_logo.jpg" alt="Aplex Logo" className="h-8 w-8 object-cover rounded-md mr-3" />
         <h1 className="text-xl text-slate-200 tracking-tight">Mediator Page <span className="text-slate-600 mx-1">|</span> Please Wait.</h1>
       </div>
 
@@ -83,18 +123,29 @@ export function MediatorPage({ movieId, quality }: MediatorPageProps) {
             <span className="text-5xl sm:text-6xl text-white font-light z-10">{countdown}</span>
           </div>
 
-          <button
-            onClick={countdown === 0 ? handleDownload : undefined}
-            disabled={countdown === 0 && !rawLink}
-            className={`
-              font-bold tracking-widest text-sm rounded-full px-10 py-3 transition-all
-              ${countdown === 0 
-                ? (rawLink ? 'bg-red-600 hover:bg-red-500 text-white border-[6px] border-red-900/50 shadow-[0_0_20px_rgba(239,68,68,0.4)] cursor-pointer' : 'bg-slate-800 text-slate-500 border-[6px] border-slate-900')
-                : 'bg-red-600/30 text-white/50 border-[6px] border-red-900/30 cursor-default'}
-            `}
-          >
-            {countdown > 0 ? 'PLEASE WAIT...' : (rawLink ? 'GET LINK' : 'NOT FOUND')}
-          </button>
+                    {countdown === 0 && rawLink ? (
+            <button
+              onClick={() => {
+                const fullUrl = rawLink.startsWith('http') ? rawLink : 'https://' + rawLink;
+                window.open(fullUrl, '_blank');
+              }}
+              className="bg-red-600 hover:bg-red-500 text-white border-[6px] border-red-900/50 shadow-[0_0_20px_rgba(239,68,68,0.4)] cursor-pointer font-bold tracking-widest text-sm rounded-full px-10 py-3 transition-all inline-block text-center"
+            >
+              GET LINK
+            </button>
+          ) : (
+            <button
+              disabled={true}
+              className={`
+                font-bold tracking-widest text-sm rounded-full px-10 py-3 transition-all
+                ${countdown === 0 
+                   ? 'bg-slate-800 text-slate-500 border-[6px] border-slate-900'
+                  : 'bg-red-600/30 text-white/50 border-[6px] border-red-900/30 cursor-default'}
+              `}
+            >
+              {countdown > 0 ? 'PLEASE WAIT...' : 'NOT FOUND'}
+            </button>
+          )}
         </div>
 
         {/* Bottom Ads */}
