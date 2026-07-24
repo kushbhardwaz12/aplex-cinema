@@ -598,7 +598,7 @@ export default function App() {
         return;
       }
       console.error(error);
-      setLoginError("Google Sign-In failed. Please try again.");
+      setLoginError(error.message || "Google Sign-In failed. Please try again.");
     }
   };
 

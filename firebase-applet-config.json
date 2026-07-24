@@ -6,5 +6,7 @@
   "firestoreDatabaseId": "ai-studio-1bf586e0-99a1-4e17-a44d-7305d9d2d2a4",
   "storageBucket": "auspicious-woods-707pf.firebasestorage.app",
   "messagingSenderId": "538019966189",
-  "measurementId": ""
+  "measurementId": "",
+  "oAuthClientId": "538019966189-236emgb4ui33pp2cm1v90qra9mkih0vo.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }
