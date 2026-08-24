@@ -1,1 +1,57 @@
 @import "tailwindcss";
+
+@keyframes blood-drip {
+  0% {
+    height: 0;
+    opacity: 1;
+    transform: translateY(0);
+  }
+  60% {
+    height: 12px;
+    opacity: 0.9;
+  }
+  100% {
+    height: 15px;
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.blood-drip-effect {
+  position: relative;
+}
+
+.blood-drip-effect::before,
+.blood-drip-effect::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  background-color: #dc2626;
+  border-radius: 0 0 2px 2px;
+  bottom: 0px;
+  animation: blood-drip 2.5s infinite ease-in;
+  box-shadow: 0 0 4px #dc2626;
+}
+
+.blood-drip-effect::before {
+  left: 20%;
+  animation-delay: 0.2s;
+}
+
+.blood-drip-effect::after {
+  right: 35%;
+  animation-delay: 1.5s;
+}
+
+.blood-drip-effect .blood-drop-3 {
+  content: '';
+  position: absolute;
+  width: 2px;
+  background-color: #dc2626;
+  border-radius: 0 0 2px 2px;
+  bottom: 0px;
+  animation: blood-drip 3s infinite ease-in;
+  box-shadow: 0 0 4px #dc2626;
+  left: 55%;
+  animation-delay: 0.8s;
+}
