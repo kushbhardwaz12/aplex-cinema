@@ -13,6 +13,10 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
+              if (id.includes('firebase')) return 'firebase-vendor';
+              if (id.includes('react')) return 'react-vendor';
+              if (id.includes('motion')) return 'motion-vendor';
+              if (id.includes('lucide')) return 'lucide-vendor';
               return 'vendor';
             }
           }

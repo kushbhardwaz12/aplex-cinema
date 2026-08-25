@@ -188,6 +188,23 @@ const fetchFileSize = async (url: string): Promise<string> => {
   return "";
 };
 
+
+export const generateCleanSlug = (title) => {
+  if (!title) return "movie";
+  return title
+    .toLowerCase()
+    .replace(/hdtc|1080p|720p|480p|x264|full-movie/gi, '')
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, '');
+};
+
+export const getCleanTitle = (title) => {
+  if (!title) return "";
+  let clean = title.replace(/hdtc|1080p|720p|480p|x264|full-movie/gi, '').trim();
+  clean = clean.replace(/[-_]+$/, '').trim();
+  return clean;
+};
+
 export default function App() {
   // Navigation & Auth State
   const [screen, setScreen] = useState<
@@ -441,6 +458,7 @@ export default function App() {
 
   // App Data State
   const [movies, setMovies] = useState<Movie[]>([]);
+  const [isLoadingMovies, setIsLoadingMovies] = useState(true);
 
   // AI Bot State
   const [botCheckStatus, setBotCheckStatus] = useState<"idle" | "running" | "done">("idle");
@@ -533,6 +551,7 @@ export default function App() {
 
         // Ab data direct top-to-bottom automatically line mein lag kar aayega
         setMovies(moviesData);
+        setIsLoadingMovies(false);
       },
       (error) => {
         console.error("Firestore Error in App.tsx movies onSnapshot:", error);
@@ -571,7 +590,7 @@ export default function App() {
   // URL updating logic
   useEffect(() => {
     if (screen === "movie_detail" && selectedMovie) {
-      document.title = `${selectedMovie.title} - Aplex Cinema`;
+      document.title = `${getCleanTitle(selectedMovie.title)} - Aplex Cinema`;
       let metaDescription = document.querySelector('meta[name="description"]');
       if (!metaDescription) {
          metaDescription = document.createElement('meta');
@@ -580,7 +599,24 @@ export default function App() {
       }
       metaDescription.setAttribute("content", selectedMovie.description?.substring(0, 160) || "");
       
-      const slug = selectedMovie.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      let jsonLdScript = document.querySelector('#movie-json-ld');
+      if (!jsonLdScript) {
+        jsonLdScript = document.createElement('script');
+        jsonLdScript.id = 'movie-json-ld';
+        jsonLdScript.setAttribute('type', 'application/ld+json');
+        document.head.appendChild(jsonLdScript);
+      }
+      const jsonLdData = {
+        "@context": "https://schema.org",
+        "@type": selectedMovie.type === "series" ? "TVSeries" : "Movie",
+        "name": selectedMovie.title,
+        "image": selectedMovie.image,
+        "description": selectedMovie.description,
+        "url": window.location.href
+      };
+      jsonLdScript.textContent = JSON.stringify(jsonLdData);
+
+      const slug = generateCleanSlug(selectedMovie.title);
       const newUrl = `/movie/${selectedMovie.id}/${slug}`;
       if (window.location.pathname !== newUrl) {
          window.history.pushState({ screen: "movie_detail", movieId: selectedMovie.id }, '', newUrl);
@@ -589,6 +625,10 @@ export default function App() {
       document.title = "MovieSync (Aplex Cinema) - Download Latest HD Movies & Web Series";
       if (window.location.pathname !== "/") {
          window.history.pushState({ screen: "public_home" }, '', "/");
+      }
+      const jsonLdScript = document.querySelector('#movie-json-ld');
+      if (jsonLdScript) {
+        jsonLdScript.remove();
       }
     }
   }, [screen, selectedMovie]);
@@ -693,7 +733,7 @@ export default function App() {
 
   const handleMovieClick = (e: React.MouseEvent<HTMLAnchorElement>, movie: any) => {
     const isMobile = window.innerWidth <= 768;
-    const slug = movie.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const slug = generateCleanSlug(movie.title);
     const newUrl = `/movie/${movie.id}/${slug}`;
     
     if (screen === "admin_dashboard") {
@@ -3007,7 +3047,7 @@ export default function App() {
             >
               {/* Highlights Slider full width */}
               {!searchQuery &&
-                movies.filter((m) => m.isHighlight).length > 0 && (
+                (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
                   <div className="w-full bg-black/50 mb-8 border-b border-slate-800">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-2">
                       <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -3029,12 +3069,19 @@ export default function App() {
                       </h2>
                     </div>
                     <div ref={sliderRef} className="flex overflow-x-auto gap-1 pb-4 pt-2 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                      {movies
+                      {isLoadingMovies ? (
+                        Array.from({ length: 6 }).map((_, index) => (
+                          <div
+                            key={`skeleton-slider-${index}`}
+                            className="block w-[110px] sm:w-[130px] md:w-[150px] lg:w-[170px] xl:w-[190px] aspect-[2/3] bg-slate-900 flex-shrink-0 snap-center rounded-xl animate-pulse border border-slate-800"
+                          ></div>
+                        ))
+                      ) : movies
                         .filter((m) => m.isHighlight)
                         .slice(0, 10)
                         .map((movie, index) => (
                           <motion.a
-                            href={`/movie/${movie.id}/${movie.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                            href={`/movie/${movie.id}/${generateCleanSlug(movie.title)}`}
                             target="_blank"
                             initial={{ opacity: 0, scale: 0.9 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -3120,7 +3167,21 @@ export default function App() {
                   </div>
                 </div>
 
-                {filteredMovies.length > 0 ? (
+                {isLoadingMovies ? (
+                  <div className="mb-12">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <div key={`skeleton-grid-${i}`} className="group bg-[#0f0f0f] rounded-sm overflow-hidden border border-slate-900 flex flex-col relative animate-pulse">
+                          <div className="aspect-[2/3] overflow-hidden bg-slate-900"></div>
+                          <div className="p-3 flex flex-col flex-grow bg-[#0f0f0f]">
+                            <div className="h-4 bg-slate-800 rounded w-3/4 mb-2"></div>
+                            <div className="h-3 bg-slate-800 rounded w-1/2"></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : filteredMovies.length > 0 ? (
                   <div className="mb-12">
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
                       {filteredMovies.map((item, index) => (
