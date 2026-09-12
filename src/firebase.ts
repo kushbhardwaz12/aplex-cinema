@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { initializeFirestore } from "firebase/firestore";
+import { initializeFirestore, setLogLevel } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import firebaseConfig from "../firebase-applet-config.json";
 
@@ -7,10 +7,14 @@ import firebaseConfig from "../firebase-applet-config.json";
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore with long polling specific to the applet database instance
-const db = initializeFirestore(app, { experimentalForceLongPolling: true }, firebaseConfig.firestoreDatabaseId);
+// AutoPolling helps bypass offline mode errors in some edge environments.
+const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true }, firebaseConfig.firestoreDatabaseId);
 
 // Initialize Firebase Auth
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
 export { db, auth, googleProvider };
+
+// Suppress Firestore connection warnings in dev/preview environments
+setLogLevel('silent');

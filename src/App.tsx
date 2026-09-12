@@ -31,8 +31,7 @@ import {
   Pencil,
   Activity,
   CheckCircle,
-  XCircle,
-} from "lucide-react";
+  XCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   collection,
@@ -50,6 +49,34 @@ import { signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPass
 import { db, auth, googleProvider } from "./firebase";
 import { AdsterraAd } from "./components/AdsterraAd";
 import { MediatorPage } from "./pages/MediatorPage";
+
+// Image Compression Utility
+const compressImage = (file: File, maxWidth: number = 800): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = (error) => reject(error);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
 
 // --- Types ---
 interface Comment {
@@ -114,10 +141,12 @@ const ImageWithSkeleton = ({
   src,
   alt,
   className,
+  onClick,
 }: {
   src: string;
   alt: string;
   className?: string;
+  onClick?: () => void;
 }) => {
   const [loaded, setLoaded] = useState(false);
   return (
@@ -128,6 +157,7 @@ const ImageWithSkeleton = ({
                             <img
         src={src}
         alt={alt}
+        onClick={onClick}
         className={`${className} ${loaded ? "opacity-100" : "opacity-0"} transition-opacity duration-300`}
         onLoad={() => setLoaded(true)}
       />
@@ -205,6 +235,26 @@ export const getCleanTitle = (title) => {
   return clean;
 };
 
+
+const NativeBannerAd = () => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (containerRef.current && !containerRef.current.querySelector('script')) {
+      const script = document.createElement('script');
+      script.async = true;
+      script.setAttribute('data-cfasync', 'false');
+      script.src = 'https://pl31164034.profitableratecpmnetwork.com/809506099fd69325b0fe10497e00c479/invoke.js';
+      containerRef.current.appendChild(script);
+    }
+  }, []);
+
+  return (
+    <div className="w-full flex justify-center py-8">
+      <div id="container-809506099fd69325b0fe10497e00c479" ref={containerRef}></div>
+    </div>
+  );
+};
+
 export default function App() {
   // Navigation & Auth State
   const [screen, setScreen] = useState<
@@ -212,66 +262,100 @@ export default function App() {
   >(window.location.pathname.startsWith("/movie/") ? "loading" : "public_home");
   const [mediatorTarget, setMediatorTarget] = useState<{ id: string; quality: string; url?: string } | null>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
-  const [bookmarks, setBookmarks] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem('movieBookmarks');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('movieBookmarks', JSON.stringify(bookmarks));
-  }, [bookmarks]);
-
-  const toggleBookmark = (id: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setBookmarks(prev => prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]);
-  };
-
-  useEffect(() => {
-    if (screen !== "public_home") return;
-    const interval = setInterval(() => {
-      if (sliderRef.current) {
-        const { scrollLeft, scrollWidth, clientWidth } = sliderRef.current;
-        const isAtEnd = scrollLeft + clientWidth >= scrollWidth - 10;
-        
-        if (isAtEnd) {
-          sliderRef.current.scrollTo({ left: 0, behavior: "smooth" });
-        } else {
-          sliderRef.current.scrollBy({ left: clientWidth * 0.8, behavior: "smooth" });
-        }
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [screen]);
 
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
 
-  const DIRECT_LINK = "https://www.effectivecpmnetwork.com/tuu7ayb7n?key=26cd331c63229d8724baf9fcb37d894b";
+  const DIRECT_LINK = "https://www.profitableratecpmnetwork.com/d192d2ap8?key=b61f2d758f64d7e7b4e6a422be46afd5";
 
   const [adTriggeredKeys, setAdTriggeredKeys] = useState<Set<string>>(new Set());
+  const [movieClickCount, setMovieClickCount] = useState(0);
+  const [liveStreamClickCount, setLiveStreamClickCount] = useState(0);
+
+  useEffect(() => {
+    if (screen === 'public_home') {
+      setMovieClickCount(0);
+      setLiveStreamClickCount(0);
+    }
+  }, [screen]);
+
+  // --- AD NETWORK SETUP ---
+  const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isDesktop = !isMobileOrTablet;
   
-  // type can be 'movie_click' or 'download_click'
-  const triggerAdOverlay = (nextAction: () => void, adKey?: string, type: 'movie_click' | 'download_click' = 'download_click') => {
+  useEffect(() => {
+    if (isMobileOrTablet) {
+      // Social Bar for Mobile/Tablet only
+      if (!document.getElementById('social-bar-script')) {
+        const script = document.createElement('script');
+        script.id = 'social-bar-script';
+        script.src = 'https://pl31063278.profitableratecpmnetwork.com/b0/ca/63/b0ca630d2be61581807ab7009cf42df8.js';
+        script.async = true;
+        document.body.appendChild(script);
+      }
+    }
+  }, [isMobileOrTablet]);
+
+  // Popunder script injection state
+  const [popunderInjected, setPopunderInjected] = useState(false);
+  useEffect(() => {
+    if (isDesktop) {
+      if (!document.getElementById('popunder-script')) {
+        const script = document.createElement('script');
+        script.id = 'popunder-script';
+        script.src = 'https://pl31063276.profitableratecpmnetwork.com/1c/92/c8/1c92c833d1b12d095d2f10c876c01465.js';
+        script.async = true;
+        document.body.appendChild(script);
+      }
+    }
+  }, [isDesktop]);
+
+  const handleMovieInteraction = () => {
+    // Popunder is now injected on load for Desktop, it will handle clicks natively
+  };
+
+  
+  // type can be 'movie_click' | 'download_click' | 'live_stream_click' | 'input_click'
+  const triggerAdOverlay = (nextAction: () => void, adKey?: string, type: 'movie_click' | 'download_click' | 'live_stream_click' | 'input_click' = 'download_click') => {
     if (screen === "admin_dashboard") {
       nextAction();
       return;
     }
     
-    const isMobile = window.innerWidth <= 768;
-    
-    // On mobile, DO NOT show popups when clicking a movie on the home screen
-    if (isMobile && type === 'movie_click') {
+    // For movie clicks (navigate immediately, but trigger ad in background)
+    if (type === 'movie_click') {
+      if (movieClickCount < 2) {
+        window.open(DIRECT_LINK, "_blank");
+        setMovieClickCount(prev => prev + 1);
+      }
       nextAction();
       return;
     }
     
-    // For all other cases (Desktop movie click, or ANY download click)
+    // For live stream clicks (requires 3 total clicks to proceed)
+    if (type === 'live_stream_click') {
+      if (liveStreamClickCount < 2) {
+        window.open(DIRECT_LINK, "_blank");
+        setLiveStreamClickCount(prev => prev + 1);
+        return; // Block navigation
+      } else {
+        nextAction();
+        return;
+      }
+    }
+
+    // For input clicks
+    if (type === 'input_click') {
+      if (adKey && !adTriggeredKeys.has(adKey)) {
+        window.open(DIRECT_LINK, "_blank");
+        setAdTriggeredKeys(prev => new Set(prev).add(adKey));
+      }
+      nextAction();
+      return;
+    }
+    
+    // For download clicks
     if (adKey) {
       if (!adTriggeredKeys.has(adKey)) {
         window.open(DIRECT_LINK, "_blank");
@@ -285,7 +369,18 @@ export default function App() {
   };
 
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
-  const [showLoginReminderPopup, setShowLoginReminderPopup] = useState(false);
+
+  const installPopupShown = useRef(false);
+  useEffect(() => {
+    if (screen === "public_home" && !installPopupShown.current) {
+      const timer = setTimeout(() => {
+        setShowNotificationPopup(true);
+        installPopupShown.current = true;
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [screen]);
+  
 
   useEffect(() => {
     if (screen === "admin_dashboard") {
@@ -459,6 +554,63 @@ export default function App() {
   // App Data State
   const [movies, setMovies] = useState<Movie[]>([]);
   const [isLoadingMovies, setIsLoadingMovies] = useState(true);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const [isSliderHovered, setIsSliderHovered] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
+  const [isTrailerResumed, setIsTrailerResumed] = useState(false);
+  const [showResumeOverlay, setShowResumeOverlay] = useState(false);
+  const [isScrolledPast, setIsScrolledPast] = useState(false);
+  
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolledPast(window.scrollY > (window.innerWidth <= 768 ? 150 : 400));
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    setShowTrailer(false);
+    setIsTrailerResumed(false);
+    setShowResumeOverlay(false);
+    // On mobile, just play after 3s. On PC, play after 1.5s of hovering (or just 1s).
+    // Actually, user wants: if window is hovered, show full trailer. 
+    // We will just let showTrailer=true after 3s, but in render we check (showTrailer && (isMobile || isSliderHovered))
+    const timeout = setTimeout(() => {
+      setShowTrailer(true);
+    }, 2000);
+    return () => clearTimeout(timeout);
+  }, [highlightIndex]);
+  const [bookmarks, setBookmarks] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('movieBookmarks');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('movieBookmarks', JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  const toggleBookmark = (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setBookmarks(prev => prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]);
+  };
+
+  useEffect(() => {
+    if (screen !== "public_home") return;
+    const hCount = movies.filter(m => m.isHighlight).length;
+    if (hCount === 0) return;
+    
+    // Auto-slide removed based on user request. Only manually slide.
+    
+    return () => {
+      // Cleanups for timeouts removed
+    };
+  }, [screen, highlightIndex, movies, isTrailerResumed]);
 
   // AI Bot State
   const [botCheckStatus, setBotCheckStatus] = useState<"idle" | "running" | "done">("idle");
@@ -562,6 +714,7 @@ export default function App() {
 
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [adminSearchQuery, setAdminSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [movieCategory, setMovieCategory] = useState<string[]>(["Action"]);
   const [customCategoryInput, setCustomCategoryInput] = useState("");
@@ -590,14 +743,31 @@ export default function App() {
   // URL updating logic
   useEffect(() => {
     if (screen === "movie_detail" && selectedMovie) {
-      document.title = `${getCleanTitle(selectedMovie.title)} - Aplex Cinema`;
-      let metaDescription = document.querySelector('meta[name="description"]');
-      if (!metaDescription) {
-         metaDescription = document.createElement('meta');
-         metaDescription.setAttribute('name', 'description');
-         document.head.appendChild(metaDescription);
-      }
-      metaDescription.setAttribute("content", selectedMovie.description?.substring(0, 160) || "");
+      document.title = selectedMovie.title;
+      
+      // Update Description
+      let metaDesc = document.querySelector('meta[name="description"]') || document.createElement('meta');
+      metaDesc.setAttribute('name', 'description');
+      metaDesc.setAttribute('content', selectedMovie.description?.substring(0, 160) || "");
+      document.head.appendChild(metaDesc);
+
+      // Update OG Title
+      let ogTitle = document.querySelector('meta[property="og:title"]') || document.createElement('meta');
+      ogTitle.setAttribute('property', 'og:title');
+      ogTitle.setAttribute('content', selectedMovie.title);
+      document.head.appendChild(ogTitle);
+
+      // Update OG Image
+      let ogImage = document.querySelector('meta[property="og:image"]') || document.createElement('meta');
+      ogImage.setAttribute('property', 'og:image');
+      ogImage.setAttribute('content', selectedMovie.image);
+      document.head.appendChild(ogImage);
+
+      // Update OG URL
+      let ogUrl = document.querySelector('meta[property="og:url"]') || document.createElement('meta');
+      ogUrl.setAttribute('property', 'og:url');
+      ogUrl.setAttribute('content', window.location.href);
+      document.head.appendChild(ogUrl);
       
       let jsonLdScript = document.querySelector('#movie-json-ld');
       if (!jsonLdScript) {
@@ -622,7 +792,7 @@ export default function App() {
          window.history.pushState({ screen: "movie_detail", movieId: selectedMovie.id }, '', newUrl);
       }
     } else if (screen === "public_home") {
-      document.title = "MovieSync (Aplex Cinema) - Download Latest HD Movies & Web Series";
+      document.title = "Aplex Cinema - Download Latest HD Movies & Web Series";
       if (window.location.pathname !== "/") {
          window.history.pushState({ screen: "public_home" }, '', "/");
       }
@@ -731,13 +901,15 @@ export default function App() {
     }
   };
 
-  const handleMovieClick = (e: React.MouseEvent<HTMLAnchorElement>, movie: any) => {
+  const handleMovieClick = (e: React.MouseEvent<any>, movie: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     const isMobile = window.innerWidth <= 768;
     const slug = generateCleanSlug(movie.title);
     const newUrl = `/movie/${movie.id}/${slug}`;
     
     if (screen === "admin_dashboard") {
-      e.preventDefault();
       window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
       setSelectedMovie(movie);
       setScreen("movie_detail");
@@ -745,34 +917,28 @@ export default function App() {
       return;
     }
 
+    // Open 1 ad only for the first time someone clicks on a movie
     if (!adTriggeredKeys.has(movie.id)) {
-      setAdTriggeredKeys(prev => new Set(prev).add(movie.id));
-      
-      if (isMobile) {
-        e.preventDefault();
-        // Mobile Jugad: Open Ad in new tab (pops to front), navigate CURRENT tab to movie
-        window.open(DIRECT_LINK, "_blank");
-        window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
-        setSelectedMovie(movie);
-        setScreen("movie_detail");
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
-        e.preventDefault();
-        // Desktop Jugad: 3 Tabs (Home stays open, Movie opens in new, Ad opens in new)
-        window.open(DIRECT_LINK, "_blank"); 
-        window.open(newUrl, "_blank");
-      }
+      window.open(DIRECT_LINK, "_blank");
+      setAdTriggeredKeys(prev => {
+        const newSet = new Set(prev);
+        newSet.add(movie.id);
+        return newSet;
+      });
+    }
+
+    if (isMobile) {
+      window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
+      setSelectedMovie(movie);
+      setScreen("movie_detail");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
-      if (isMobile) {
-        e.preventDefault();
-        window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
-        setSelectedMovie(movie);
-        setScreen("movie_detail");
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
-        e.preventDefault();
-        window.open(newUrl, "_blank");
-      }
+      // Instead of opening in a new tab, navigate in the same tab so popups don't get blocked
+      // when ad is already opening in a new tab.
+      window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
+      setSelectedMovie(movie);
+      setScreen("movie_detail");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -908,35 +1074,29 @@ export default function App() {
     }
   };
 
-  const handleSeriesImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSeriesImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSeriesImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 600);
+        setSeriesImage(compressed);
+      } catch (error) {
+        console.error("Image compression failed:", error);
+      }
     }
   };
 
-  const handleSeriesScreenshotsChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleSeriesScreenshotsChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length > 0) {
-      const readers = files.map((file) => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            resolve(reader.result as string);
-          };
-          reader.readAsDataURL(file);
-        });
-      });
-
-      Promise.all(readers).then((results) => {
-        setSeriesScreenshots(results);
-      });
+      try {
+        const compressedImages = await Promise.all(
+          files.map(file => compressImage(file, 800))
+        );
+        setSeriesScreenshots(prev => [...prev, ...compressedImages]);
+      } catch (error) {
+        console.error("Screenshots compression failed:", error);
+      }
     }
   };
 
@@ -1140,33 +1300,29 @@ export default function App() {
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setMovieImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 600);
+        setMovieImage(compressed);
+      } catch (error) {
+        console.error("Image compression failed:", error);
+      }
     }
   };
 
-  const handleScreenshotsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScreenshotsChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length > 0) {
-      const readers = files.map((file) => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            resolve(reader.result as string);
-          };
-          reader.readAsDataURL(file);
-        });
-      });
-
-      Promise.all(readers).then((results) => {
-        setMovieScreenshots(results);
-      });
+      try {
+        const compressedImages = await Promise.all(
+          files.map(file => compressImage(file, 800))
+        );
+        setMovieScreenshots(prev => [...prev, ...compressedImages]);
+      } catch (error) {
+        console.error("Screenshots compression failed:", error);
+      }
     }
   };
 
@@ -1365,12 +1521,26 @@ export default function App() {
               className="flex items-center gap-3 group cursor-pointer"
               onClick={() => setScreen("public_home")}
             >
-              <div
-                id="text-logo"
-                className="flex items-center text-2xl font-black tracking-tighter text-white drop-shadow-md hover:scale-105 transition-transform"
-              >
-                APLEX <span className="text-red-600 ml-1.5 mr-2">CINEMA</span>
-                <span className="bg-gradient-to-r from-red-600 to-red-500 text-white text-xs px-2 py-1 rounded-md italic shadow-lg shadow-red-500/20 tracking-wider">4US</span>
+              <div className="flex items-center gap-3">
+                {screen === "movie_detail" && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setScreen("public_home");
+                    }} 
+                    className="p-1.5 bg-slate-800/80 hover:bg-red-600 text-slate-300 hover:text-white rounded-full transition-all border border-slate-700 hover:border-red-500 shadow-md flex items-center justify-center mr-2"
+                    title="Go Back"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  </button>
+                )}
+                <div
+                  id="text-logo"
+                  className="flex items-center text-xl sm:text-2xl font-black tracking-tighter text-white drop-shadow-md hover:scale-105 transition-transform"
+                >
+                  APLEX <span className="text-red-600 ml-1.5 mr-2">CINEMA</span>
+                  <span className="bg-gradient-to-r from-red-600 to-red-500 text-white text-xs px-2 py-1 rounded-md italic shadow-lg shadow-red-500/20 tracking-wider hidden sm:inline-block">4US</span>
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -1406,19 +1576,18 @@ export default function App() {
               ) : (
                 screen !== "login" &&
                 screen !== "pin_check" && (
-                  <button
-                    onClick={() => {
-                      setScreen("login");
-                      setEmail("");
-                      setPassword("");
-                      setPin("");
-                      setShowAdminLoginForm(false);
-                    }}
-                    className="flex items-center gap-2 text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-all px-5 py-2 rounded-lg shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-                  >
-                    <UserCircle className="w-4 h-4" />
-                    Sign-In
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.5)] uppercase tracking-wider"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Install
+                    </a>
+                    {/* Login button removed as requested */}
+                  </div>
                 )
               )}
             </div>
@@ -1877,12 +2046,24 @@ export default function App() {
                             <div className="flex flex-col items-center w-full">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 w-full">
                                 {movieScreenshots.map((img, i) => (
-                            <img
-                                    key={i}
-                                    src={img}
-                                    alt={`Screenshot ${i + 1}`}
-                                    className="h-24 w-full object-cover rounded-lg shadow-xl border border-slate-800"
-                                  />
+                                  <div key={i} className="relative group">
+                                    <img
+                                      src={img}
+                                      alt={`Screenshot ${i + 1}`}
+                                      className="h-24 w-full object-cover rounded-lg shadow-xl border border-slate-800"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setMovieScreenshots(prev => prev.filter((_, idx) => idx !== i));
+                                      }}
+                                      className="absolute top-1 right-1 bg-red-600/90 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:scale-110"
+                                      title="Remove"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                               <p className="text-sm text-red-400 font-medium tracking-widest mt-2">
@@ -2451,12 +2632,24 @@ export default function App() {
                             <div className="flex flex-col items-center w-full">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 w-full">
                                 {seriesScreenshots.map((img, i) => (
-                            <img
-                                    key={i}
-                                    src={img}
-                                    alt={`Screenshot ${i + 1}`}
-                                    className="h-24 w-full object-cover rounded-lg shadow-xl border border-slate-800"
-                                  />
+                                  <div key={i} className="relative group">
+                                    <img
+                                      src={img}
+                                      alt={`Screenshot ${i + 1}`}
+                                      className="h-24 w-full object-cover rounded-lg shadow-xl border border-slate-800"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSeriesScreenshots(prev => prev.filter((_, idx) => idx !== i));
+                                      }}
+                                      className="absolute top-1 right-1 bg-red-600/90 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:scale-110"
+                                      title="Remove"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                               <p className="text-sm text-red-400 font-medium tracking-widest mt-2">
@@ -2881,9 +3074,21 @@ export default function App() {
 
               {/* Manage Movies */}
               <div className="mt-8">
-                <h3 className="text-xl font-bold text-white mb-6 border-b border-slate-800 pb-2">
-                  Active Data Streams
-                </h3>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-slate-800 pb-4 gap-4">
+                  <h3 className="text-xl font-bold text-white">
+                    Active Data Streams
+                  </h3>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search active streams..."
+                      value={adminSearchQuery}
+                      onChange={(e) => setAdminSearchQuery(e.target.value)}
+                      className="w-full bg-[#0a0a0a] border border-slate-700 text-white rounded-lg pl-9 pr-4 py-2 focus:outline-none focus:border-red-500 transition-colors text-sm"
+                    />
+                  </div>
+                </div>
                 {movies.length === 0 ? (
                   <div className="text-center py-12 bg-slate-900/50 rounded-2xl border border-slate-800 border-dashed">
                     <p className="text-slate-500">
@@ -2892,7 +3097,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {movies.map((movie) => (
+                    {movies.filter(movie => movie.title.toLowerCase().includes(adminSearchQuery.toLowerCase())).map((movie) => (
                       <div
                         key={movie.id}
                         className="flex flex-col sm:flex-row justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-2xl gap-4 hover:bg-slate-800/80 hover:border-slate-700 transition-colors shadow-lg"
@@ -3006,15 +3211,14 @@ export default function App() {
                     .filter((m) => bookmarks.includes(m.id))
                     .map((item, index) => (
                       <motion.a
-                        href={`/movie/${item.id}/${item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-                        target="_blank"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        key={item.id}
-                        onClick={(e) => handleMovieClick(e, item)}
-                        className="group cursor-pointer bg-[#0f0f0f] rounded-sm overflow-hidden border border-slate-900 hover:border-slate-700 transition-all duration-300 flex flex-col relative block"
-                      >
+                          href={`/movie/${item.id}/${generateCleanSlug(item.title)}`}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          key={item.id}
+                          onClick={(e) => handleMovieClick(e, item)}
+                          className="group cursor-pointer bg-[#0f0f0f] rounded-sm overflow-hidden border border-slate-900 hover:border-slate-700 transition-all duration-300 flex flex-col relative block"
+                        >
                         <button onClick={(e) => toggleBookmark(item.id, e)} className={`absolute top-2 left-2 z-20 p-1.5 rounded-full backdrop-blur-sm transition-all ${bookmarks.includes(item.id) ? "bg-red-600 text-white" : "bg-slate-950/60 text-slate-300 hover:text-white"}`}><Bookmark className={`w-3 h-3 ${bookmarks.includes(item.id) ? "fill-current" : ""}`} /></button>
                         <div className="absolute top-2 right-2 bg-slate-950/80 backdrop-blur-sm text-red-400 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded border border-red-900/50 z-10">
                           {item.type === "series" ? "Series" : "Online"}
@@ -3045,72 +3249,241 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="w-full"
             >
-              {/* Highlights Slider full width */}
-              {!searchQuery &&
-                (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
-                  <div className="w-full bg-black/50 mb-8 border-b border-slate-800">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-2">
-                      <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        <span 
-                          className="text-white cursor-pointer select-none"
-                          onClick={() => {
-                            setStarClicks(prev => {
-                              if (prev + 1 >= 3) {
-                                setShowAdminLoginForm(true);
-                                setScreen("login");
-                                return 0;
-                              }
-                              return prev + 1;
-                            });
-                          }}
-                        >
-                          ⭐
-                        </span> Top Highlights
-                      </h2>
-                    </div>
-                    <div ref={sliderRef} className="flex overflow-x-auto gap-1 pb-4 pt-2 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                      {isLoadingMovies ? (
-                        Array.from({ length: 6 }).map((_, index) => (
-                          <div
-                            key={`skeleton-slider-${index}`}
-                            className="block w-[110px] sm:w-[130px] md:w-[150px] lg:w-[170px] xl:w-[190px] aspect-[2/3] bg-slate-900 flex-shrink-0 snap-center rounded-xl animate-pulse border border-slate-800"
-                          ></div>
-                        ))
-                      ) : movies
-                        .filter((m) => m.isHighlight)
-                        .slice(0, 10)
-                        .map((movie, index) => (
-                          <motion.a
-                            href={`/movie/${movie.id}/${generateCleanSlug(movie.title)}`}
-                            target="_blank"
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: index * 0.05 }}
-                            key={`highlight-${movie.id}`}
-                            onClick={(e) => handleMovieClick(e, movie)}
-                            className="block w-[110px] sm:w-[130px] md:w-[150px] lg:w-[170px] xl:w-[190px] aspect-[2/3] bg-slate-900 cursor-pointer relative group flex-shrink-0 snap-center transition-all duration-300 hover:scale-[1.03] hover:z-10 shadow-lg overflow-hidden rounded-xl"
-                          >
-                            <button onClick={(e) => toggleBookmark(movie.id, e)} className={`absolute top-2 right-2 z-30 p-1.5 rounded-full backdrop-blur-sm transition-all shadow-md ${bookmarks.includes(movie.id) ? "bg-red-600/90 text-white" : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"}`}>
-                              <Bookmark className={`w-3.5 h-3.5 ${bookmarks.includes(movie.id) ? "fill-current" : ""}`} />
-                            </button>
-                            <img
-                              src={movie.image}
-                              alt={movie.title}
-                              className="w-full h-full object-cover group-hover:brightness-110 transition-all duration-300 border border-transparent group-hover:border-red-500/50"
-                            />
-                            {movie.isLiveStream && (
-                              <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-600/90 backdrop-blur text-white text-[9px] sm:text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-sm animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)] z-20 pointer-events-none">
-                                <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-                                Live
-                              </div>
-                            )}
-                          </motion.a>
-                        ))}
-                    </div>
-                  </div>
-                )}
+              {/* Highlights Slider Edge Style */}
+              {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
+                <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-2">
+                  <h2 
+                    className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 cursor-pointer select-none w-fit"
+                    onClick={() => {
+                      setStarClicks(prev => {
+                        if (prev + 1 >= 3) {
+                          setShowAdminLoginForm(true);
+                          setScreen("login");
+                          return 0;
+                        }
+                        return prev + 1;
+                      });
+                    }}
+                  >
+                    <span>⭐</span> Top Highlight
+                  </h2>
+                </div>
+              )}
+              {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
+                <div 
+                  className="w-full max-w-[1600px] relative h-[450px] sm:h-[500px] md:h-[550px] lg:h-[650px] mx-auto mb-8 overflow-hidden bg-[#000000] flex flex-col justify-center items-center font-sans rounded-2xl px-4"
+                  onMouseEnter={() => setIsSliderHovered(true)}
+                  onMouseLeave={() => setIsSliderHovered(false)}
+                >
+                  {/* Subtle background glow */}
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] h-[90%] bg-blue-900/20 blur-[150px] rounded-full pointer-events-none" />
+                  
+                  {isLoadingMovies ? (
+                    <div className="w-[80%] max-w-4xl h-[300px] animate-pulse bg-slate-800 rounded-2xl"></div>
+                  ) : (() => {
+                    const highlights = movies.filter((m) => m.isHighlight).slice(0, 8);
+                    const activeHighlight = highlights[highlightIndex] || highlights[0];
+                    if (!activeHighlight) return null;
+                    
+                    const getYouTubeId = (url) => {
+                      if (!url) return null;
+                      const match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
+                      return (match && match[2].length === 11) ? match[2] : null;
+                    };
 
-              {/* WARNING BANNER */}
+                    return (
+                      <>
+                        <div className="relative w-full max-w-[1800px] h-[75%] sm:h-[80%] flex justify-center items-center mt-[-40px] perspective-[1200px]">
+                          {highlights.map((movie, index) => {
+                            // Calculate offset for infinite-like wrapping
+                            const total = highlights.length;
+                            const diff = (index - highlightIndex + total) % total;
+                            let offsetDiff = diff;
+                            if (diff > Math.floor(total / 2)) {
+                               offsetDiff = diff - total;
+                            }
+
+                            const isActive = offsetDiff === 0;
+                            const isNext = offsetDiff === 1;
+                            const isPrev = offsetDiff === -1;
+                            const isNextNext = offsetDiff === 2;
+                            const isPrevPrev = offsetDiff === -2;
+
+                            let xPos = 0;
+                            let zPos = 0;
+                            let scale = 1;
+                            let zIndex = 20;
+                            let opacity = 1;
+
+                            if (isActive) {
+                              xPos = 0;
+                              zPos = 0;
+                              scale = 1;
+                              zIndex = 50;
+                              opacity = 1;
+                            } else if (isNext) {
+                              xPos = 90; // Move right
+                              zPos = -100;
+                              scale = 0.85;
+                              zIndex = 40;
+                              opacity = 0.6;
+                            } else if (isPrev) {
+                              xPos = -90; // Move left
+                              zPos = -100;
+                              scale = 0.85;
+                              zIndex = 40;
+                              opacity = 0.6;
+                            } else if (isNextNext) {
+                              xPos = 180; // Move further right
+                              zPos = -200;
+                              scale = 0.7;
+                              zIndex = 30;
+                              opacity = 0.3;
+                            } else if (isPrevPrev) {
+                              xPos = -180; // Move further left
+                              zPos = -200;
+                              scale = 0.7;
+                              zIndex = 30;
+                              opacity = 0.3;
+                            } else {
+                              xPos = offsetDiff > 0 ? 250 : -250;
+                              zPos = -300;
+                              scale = 0.5;
+                              zIndex = 20;
+                              opacity = 0;
+                            }
+
+                            const ytId = isActive ? getYouTubeId(movie.trailerUrl) : null;
+
+                            return (
+                              <motion.div
+                                key={movie.id}
+                                className="absolute w-[80%] sm:w-[70%] max-w-[800px] h-full rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer bg-slate-900 border-[6px] border-[#1a1a1a] shadow-[0_30px_60px_-15px_rgba(0,0,0,0.9)]"
+                                onClick={(e) => {
+                                  if (!isActive) {
+                                    setHighlightIndex(index);
+                                  } else {
+                                    handleMovieClick(e, movie);
+                                  }
+                                }}
+                                animate={{
+                                  x: `${xPos}%`,
+                                  z: zPos,
+                                  scale: scale,
+                                  opacity: opacity,
+                                  zIndex: zIndex
+                                }}
+                                transition={{ type: "spring", stiffness: 300, damping: 30, mass: 1 }}
+                                style={{ transformStyle: 'preserve-3d' }}
+                              >
+                                {/* Media Content */}
+                                {ytId && isActive && showTrailer && !isScrolledPast && (window.innerWidth <= 768 || isSliderHovered) ? (
+                                  <div className="w-full h-full relative overflow-hidden pointer-events-none">
+                                    <iframe
+                                      src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&loop=1&playlist=${ytId}`}
+                                      className="absolute top-1/2 left-1/2 w-[135%] h-[135%] md:w-[120%] md:h-[120%] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                                      style={{ border: 'none' }}
+                                      allow="autoplay; encrypted-media"
+                                    />
+                                  </div>
+                                ) : (
+                                  <img
+                                    src={movie.image}
+                                    alt={movie.title}
+                                    className="absolute inset-0 w-full h-full object-cover object-center opacity-100"
+                                  />
+                                )}
+
+                                {/* Overlay gradient for inactive cards to darken them */}
+                                {!isActive && <div className="absolute inset-0 bg-black/50 z-10" />}
+
+                                {/* Card Gradient & Info (Only visible when active) */}
+                                <div className={`absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent transition-opacity duration-500 z-20 ${isActive && (!showTrailer || isScrolledPast || (window.innerWidth > 768 && !isSliderHovered)) ? 'opacity-100' : 'opacity-0'}`} />
+                                
+                                {isActive && (!showTrailer || isScrolledPast || (window.innerWidth > 768 && !isSliderHovered)) && (
+                                  <div className="absolute inset-0 flex flex-col justify-end p-5 sm:p-10 z-30">
+                                    <motion.div 
+                                      initial={{ y: 20, opacity: 0 }} 
+                                      animate={{ y: 0, opacity: 1 }}
+                                      transition={{ delay: 0.15 }}
+                                    >
+                                      <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                                        <span className="text-[#00a8e1] font-bold text-[10px] sm:text-xs tracking-wider uppercase">
+                                          Feature
+                                        </span>
+                                        {movie.isLiveStream && (
+                                          <span className="bg-red-600 text-white text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded animate-pulse">
+                                            Live
+                                          </span>
+                                        )}
+                                      </div>
+                                      <h2 className="text-xl sm:text-4xl md:text-5xl font-extrabold text-white mb-2 sm:mb-3 line-clamp-1 drop-shadow-lg">
+                                        {movie.title}
+                                      </h2>
+                                      
+                                      <div className="flex items-center gap-3">
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); handleMovieClick(e, movie); }}
+                                          className="bg-white hover:bg-slate-200 text-black font-bold py-2 sm:py-3 px-5 sm:px-8 rounded-full flex items-center gap-2 transition-transform hover:scale-105 active:scale-95 text-xs sm:text-sm shadow-xl"
+                                        >
+                                          <Download className="w-3 h-3 sm:w-5 sm:h-5" /> Download Now
+                                        </button>
+                                      </div>
+                                    </motion.div>
+                                  </div>
+                                )}
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                        
+                        {/* Resume Trailer Overlay */}
+                        {showResumeOverlay && (
+                          <div className="absolute bottom-[22%] right-[15%] sm:bottom-[24%] sm:right-[18%] z-50 flex justify-end pointer-events-none">
+                            <button
+                              onClick={() => {
+                                setIsTrailerResumed(true);
+                                setShowResumeOverlay(false);
+                              }}
+                              className="pointer-events-auto bg-red-600/90 backdrop-blur-md hover:bg-red-500 text-white px-2.5 py-1 text-[9px] sm:text-[10px] uppercase tracking-wide rounded-full font-bold shadow-[0_0_10px_rgba(239,68,68,0.5)] border border-red-400/50 flex items-center gap-1 transition-all"
+                            >
+                              <Play className="w-2.5 h-2.5 fill-current" /> Watch Full Trailer
+                            </button>
+                          </div>
+                        )}
+                        {/* Microsoft Edge Style Bottom Controls */}
+                        <div className="absolute bottom-6 sm:bottom-10 z-50 flex items-center justify-center gap-4 sm:gap-6 w-full px-4">
+                          <button 
+                            onClick={() => setHighlightIndex(prev => prev === 0 ? highlights.length - 1 : prev - 1)} 
+                            className="p-3 sm:p-4 rounded-full bg-[#1a1a1a] hover:bg-[#333] text-white transition-all border border-slate-700 shadow-xl flex items-center justify-center"
+                            title="Previous"
+                          >
+                            <ChevronLeft className="w-5 h-5" />
+                          </button>
+                          
+                          <div className="flex gap-2 sm:gap-3 items-center">
+                            {highlights.map((_, idx) => (
+                              <button
+                                key={`dot-${idx}`}
+                                onClick={() => setHighlightIndex(idx)}
+                                className={`rounded-full transition-all duration-300 shadow-md ${idx === highlightIndex ? 'bg-white w-8 sm:w-10 h-2.5 sm:h-3' : 'bg-slate-500 w-2.5 sm:w-3 h-2.5 sm:h-3 hover:bg-slate-400'}`}
+                              />
+                            ))}
+                          </div>
+
+                          <button 
+                            onClick={() => setHighlightIndex(prev => prev === highlights.length - 1 ? 0 : prev + 1)} 
+                            className="bg-[#005fb8] hover:bg-[#0078d4] text-white px-6 sm:px-10 py-3 sm:py-3.5 rounded-full font-bold flex items-center gap-2 shadow-xl transition-all hover:scale-105 active:scale-95 text-sm sm:text-base border border-blue-400/20"
+                          >
+                            Next <ChevronRight className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+{/* WARNING BANNER */}
               <div className="bg-[#1a0505] border border-red-900/40 py-2.5 px-4 z-40 relative shadow-inner mb-6 mx-4 sm:mx-6 lg:mx-8 rounded-lg flex items-center justify-center">
                 <div className="text-red-200/90 text-[11px] sm:text-[13px] md:text-sm font-medium tracking-wide whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] text-center w-full">
                   <span className="mr-1">🎉</span> Welcome to <strong className="text-red-400 font-bold mx-1">Aplex Cinema 4US</strong> app. Please wait, content takes a moment to load ⏳
@@ -3161,7 +3534,7 @@ export default function App() {
                       type="text"
                       placeholder="Query matrix..."
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => setSearchQuery(e.target.value)} onClick={() => triggerAdOverlay(() => {}, 'search_input', 'input_click')}
                       className="block w-full pl-11 pr-4 py-3 border border-slate-700/50 rounded-full bg-slate-900/60 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:bg-slate-900 backdrop-blur-md transition-all shadow-inner"
                     />
                   </div>
@@ -3186,8 +3559,7 @@ export default function App() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
                       {filteredMovies.map((item, index) => (
                         <motion.a
-                          href={`/movie/${item.id}/${item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-                          target="_blank"
+                          href={`/movie/${item.id}/${generateCleanSlug(item.title)}`}
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: index * 0.05 }}
@@ -3214,13 +3586,18 @@ export default function App() {
                             </h3>
                             {item.isLiveStream && (
                                 <button
-                                  type="button"
                                   onClick={(e) => {
-                                     e.preventDefault();
                                      e.stopPropagation();
-                                     window.open(item.liveStreamLink, '_blank');
+                                     e.preventDefault();
+                                     if (liveStreamClickCount < 2) {
+                                       window.open(DIRECT_LINK, "_blank");
+                                       setLiveStreamClickCount(prev => prev + 1);
+                                     } else {
+                                       setLiveStreamClickCount(0);
+                                       window.open(item.liveStreamLink, "_blank");
+                                     }
                                   }}
-                                  className="flex items-center gap-1 bg-red-600 text-white text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 mt-2 rounded-sm animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)] w-max"
+                                  className="flex items-center gap-1 bg-red-600 text-white text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 mt-2 rounded-sm animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)] w-max cursor-pointer"
                                 >
                                   <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
                                   Live Stream
@@ -3256,12 +3633,7 @@ export default function App() {
               className="w-full max-w-[1600px] mx-auto px-4 py-8 sm:px-6 lg:px-12"
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-                <button
-                  onClick={() => setScreen("public_home")}
-                  className="inline-flex items-center gap-2 text-slate-400 hover:text-red-400 transition-colors font-medium bg-slate-900 px-4 py-2 rounded-full border border-slate-800 hover:border-red-900 shadow-md"
-                >
-                  <ArrowLeft className="w-5 h-5" /> Return to Manifest
-                </button>
+                
               </div>
               
 
@@ -3278,19 +3650,7 @@ export default function App() {
                       <button onClick={(e) => toggleBookmark(selectedMovie.id, e)} className={`absolute top-4 right-4 z-30 p-3 rounded-full backdrop-blur-sm transition-all shadow-lg ${bookmarks.includes(selectedMovie.id) ? "bg-red-600/90 text-white" : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"}`}>
                         <Bookmark className={`w-5 h-5 ${bookmarks.includes(selectedMovie.id) ? "fill-current" : ""}`} />
                       </button>
-                            <img
-                        src={selectedMovie.image}
-                        alt={selectedMovie.title}
-                        className="w-full h-full object-cover"
-                        style={{
-                          paddingTop: "0px",
-                          paddingBottom: "0px",
-                          paddingRight: "-5px",
-                          paddingLeft: "-5px",
-                          marginTop: "5px",
-                          marginBottom: "14px",
-                        }}
-                      />
+                            <img src={selectedMovie.image} alt={selectedMovie.title} className="w-full h-full object-cover mb-4" />
                       <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/10 transition-colors pointer-events-none" />
                     </div>
                   </motion.div>
@@ -3311,10 +3671,19 @@ export default function App() {
                       {selectedMovie.title}
                       {selectedMovie.isLiveStream && (
                         <a
-                          href={selectedMovie.liveStreamLink} target="_blank"
-                          
+                          href={selectedMovie.liveStreamLink}
+                          target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-2 bg-red-600 text-white text-[14px] uppercase tracking-wider font-bold px-4 py-1.5 rounded-full animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-transform hover:scale-105"
+                          onClick={(e) => {
+                             if (liveStreamClickCount < 2) {
+                               e.preventDefault();
+                               window.open(DIRECT_LINK, "_blank");
+                               setLiveStreamClickCount(prev => prev + 1);
+                             } else {
+                               setLiveStreamClickCount(0);
+                             }
+                          }}
+                          className="flex items-center gap-2 bg-red-600 text-white text-[14px] uppercase tracking-wider font-bold px-4 py-1.5 rounded-full animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-transform hover:scale-105 cursor-pointer"
                         >
                           <span className="w-2 h-2 rounded-full bg-white"></span>
                           Live Stream
@@ -3409,7 +3778,8 @@ export default function App() {
                             <ImageWithSkeleton
                               src={img}
                               alt={`Screenshot ${i + 1}`}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-cover cursor-pointer"
+                              onClick={handleMovieInteraction}
                             />
                           </div>
                         ))}
@@ -3775,56 +4145,6 @@ export default function App() {
       <AnimatePresence>
         {showNotificationPopup && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-sm shadow-2xl shadow-red-900/20 text-center relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500/0 via-red-500 to-red-500/0 opacity-50" />
-              <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 text-red-400">
-                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-bold text-white mb-2">Enable Notifications?</h3>
-              <p className="text-sm text-slate-400 mb-6">
-                Would you like to be notified when we add new movies or web series?
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowNotificationPopup(false)}
-                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors font-medium text-sm"
-                >
-                  Not Now
-                </button>
-                <button
-                  onClick={() => {
-                    // Here we'd request notification permission in a real PWA
-                    if ('Notification' in window) {
-                      Notification.requestPermission();
-                    }
-                    setShowNotificationPopup(false);
-                  }}
-                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors font-medium text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-                >
-                  Allow
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Login Reminder Popup */}
-      <AnimatePresence>
-        {showLoginReminderPopup && (
-          <motion.div
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
@@ -3832,24 +4152,31 @@ export default function App() {
           >
             <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-red-900/20 text-center relative overflow-hidden pointer-events-auto">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500/0 via-red-500 to-red-500/0 opacity-50" />
-              <button onClick={() => setShowLoginReminderPopup(false)} className="absolute top-3 right-3 text-slate-500 hover:text-white transition-colors">✕</button>
-              <h3 className="text-xl font-bold text-white mb-2">Login Required for Full Experience</h3>
+              <button onClick={() => setShowNotificationPopup(false)} className="absolute top-3 right-3 text-slate-500 hover:text-white transition-colors">✕</button>
+              
+              <div className="mx-auto w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-4 text-red-400">
+                <Download className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Install Aplex Cinema 4US</h3>
               <p className="text-sm text-slate-400 mb-6">
-                Log in to access high quality extraction protocols, comments, and real-time updates!
+                For the best streaming experience, download our official Android app!
               </p>
-              <button
-                onClick={() => {
-                  setShowLoginReminderPopup(false);
-                  setScreen("login");
-                }}
-                className="w-full px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+              
+              <a
+                href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setShowNotificationPopup(false)}
+                className="w-full px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2"
               >
-                Go to Login
-              </button>
+                <Download className="w-5 h-5" /> Install App Now
+              </a>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+
 
       {/* New Movie Notification Toast */}
       <AnimatePresence>
