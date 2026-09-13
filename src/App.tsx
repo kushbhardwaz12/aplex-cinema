@@ -382,24 +382,7 @@ export default function App() {
   }, [screen]);
   
 
-  useEffect(() => {
-    if (screen === "admin_dashboard") {
-      setShowLoginReminderPopup(false);
-      return;
-    }
-    
-    // Only for public (non-admin)
-    if (!currentUserEmail) {
-      const timer = setTimeout(() => {
-        const hasSeen = sessionStorage.getItem("loginPopupShown");
-        if (!hasSeen) {
-          setShowLoginReminderPopup(true);
-          sessionStorage.setItem("loginPopupShown", "true");
-        }
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [screen, currentUserEmail]);
+
 
   const [newMovieNotice, setNewMovieNotice] = useState<string | null>(null);
   const initialLoadComplete = useRef(false);
@@ -3271,7 +3254,7 @@ export default function App() {
               )}
               {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
                 <div 
-                  className="w-full max-w-[1600px] relative h-[450px] sm:h-[500px] md:h-[550px] lg:h-[650px] mx-auto mb-8 overflow-hidden bg-[#000000] flex flex-col justify-center items-center font-sans rounded-2xl px-4"
+                  className="w-full max-w-[1600px] relative h-[450px] sm:h-[500px] md:h-[550px] lg:h-[650px] mx-auto mb-2 overflow-hidden bg-[#000000] flex flex-col justify-center items-center font-sans rounded-2xl px-4"
                   onMouseEnter={() => setIsSliderHovered(true)}
                   onMouseLeave={() => setIsSliderHovered(false)}
                 >
