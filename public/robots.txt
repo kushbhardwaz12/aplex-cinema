@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://aplexcinema.tv/sitemap.xml
+Sitemap: /sitemap.xml

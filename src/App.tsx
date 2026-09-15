@@ -50,8 +50,56 @@ import { db, auth, googleProvider } from "./firebase";
 import { AdsterraAd } from "./components/AdsterraAd";
 import { MediatorPage } from "./pages/MediatorPage";
 
-// Image Compression Utility
+// Image Compression Utility with Web Worker for offloading
+const workerScript = `
+  self.onmessage = async (e) => {
+    try {
+      const { file, maxWidth } = e.data;
+      const bitmap = await createImageBitmap(file);
+      let width = bitmap.width;
+      let height = bitmap.height;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
+      self.postMessage({ success: true, blob });
+    } catch (err) {
+      self.postMessage({ success: false, error: err.message });
+    }
+  };
+`;
+
 const compressImage = (file: File, maxWidth: number = 800): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (typeof window.OffscreenCanvas !== 'undefined' && typeof window.Worker !== 'undefined') {
+      const blob = new Blob([workerScript], { type: 'application/javascript' });
+      const worker = new Worker(URL.createObjectURL(blob));
+      worker.onmessage = (e) => {
+        if (e.data.success) {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target?.result as string);
+          reader.readAsDataURL(e.data.blob);
+        } else {
+          fallbackCompress(file, maxWidth).then(resolve).catch(reject);
+        }
+        worker.terminate();
+      };
+      worker.onerror = () => {
+        fallbackCompress(file, maxWidth).then(resolve).catch(reject);
+        worker.terminate();
+      };
+      worker.postMessage({ file, maxWidth });
+    } else {
+      fallbackCompress(file, maxWidth).then(resolve).catch(reject);
+    }
+  });
+};
+
+const fallbackCompress = (file: File, maxWidth: number): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -72,9 +120,9 @@ const compressImage = (file: File, maxWidth: number = 800): Promise<string> => {
         ctx?.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL("image/jpeg", 0.7));
       };
-      img.onerror = (error) => reject(error);
+      img.onerror = reject;
     };
-    reader.onerror = (error) => reject(error);
+    reader.onerror = reject;
   });
 };
 
@@ -120,6 +168,35 @@ interface Movie {
   trailerUrl?: string;
   createdAt?: any;
 }
+
+
+const DebouncedInput = ({ value, onChange, debounce = 300, ...props }: any) => {
+  const [localValue, setLocalValue] = React.useState(value);
+  const onChangeRef = React.useRef(onChange);
+  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  React.useEffect(() => { if (value !== undefined) setLocalValue(value); }, [value]);
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      onChangeRef.current(localValue);
+    }, debounce);
+    return () => clearTimeout(handler);
+  }, [localValue, debounce]);
+  return <input {...props} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+};
+
+const DebouncedTextarea = ({ value, onChange, debounce = 300, ...props }: any) => {
+  const [localValue, setLocalValue] = React.useState(value);
+  const onChangeRef = React.useRef(onChange);
+  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  React.useEffect(() => { if (value !== undefined) setLocalValue(value); }, [value]);
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      onChangeRef.current(localValue);
+    }, debounce);
+    return () => clearTimeout(handler);
+  }, [localValue, debounce]);
+  return <textarea {...props} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+};
 
 const CATEGORIES = [
   "Action",
@@ -272,6 +349,7 @@ export default function App() {
   const [adTriggeredKeys, setAdTriggeredKeys] = useState<Set<string>>(new Set());
   const [movieClickCount, setMovieClickCount] = useState(0);
   const [liveStreamClickCount, setLiveStreamClickCount] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (screen === 'public_home') {
@@ -284,32 +362,43 @@ export default function App() {
   const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isDesktop = !isMobileOrTablet;
   
+  // Instantly block ads for admin using synchronous localStorage check
+  const isStrictlyAdmin = localStorage.getItem("isAdmin") === "true";
+
   useEffect(() => {
-    if (isMobileOrTablet) {
-      // Social Bar for Mobile/Tablet only
-      if (!document.getElementById('social-bar-script')) {
+    if (isStrictlyAdmin || isAdminAuth) return;
+    if (screen === "admin_dashboard") return;
+    
+    const timer = setTimeout(() => {
+      const existingScript = document.getElementById('social-bar-script');
+      if (isMobileOrTablet && !existingScript) {
         const script = document.createElement('script');
         script.id = 'social-bar-script';
         script.src = 'https://pl31063278.profitableratecpmnetwork.com/b0/ca/63/b0ca630d2be61581807ab7009cf42df8.js';
         script.async = true;
         document.body.appendChild(script);
       }
-    }
-  }, [isMobileOrTablet]);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [isMobileOrTablet, screen, isAdminAuth, isStrictlyAdmin]);
 
-  // Popunder script injection state
   const [popunderInjected, setPopunderInjected] = useState(false);
   useEffect(() => {
-    if (isDesktop) {
-      if (!document.getElementById('popunder-script')) {
+    if (isStrictlyAdmin || isAdminAuth) return;
+    if (screen === "admin_dashboard") return;
+    
+    const timer = setTimeout(() => {
+      const existingScript = document.getElementById('popunder-script');
+      if (isDesktop && !existingScript) {
         const script = document.createElement('script');
         script.id = 'popunder-script';
         script.src = 'https://pl31063276.profitableratecpmnetwork.com/1c/92/c8/1c92c833d1b12d095d2f10c876c01465.js';
         script.async = true;
         document.body.appendChild(script);
       }
-    }
-  }, [isDesktop]);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [isDesktop, screen, isAdminAuth, isStrictlyAdmin]);
 
   const handleMovieInteraction = () => {
     // Popunder is now injected on load for Desktop, it will handle clicks natively
@@ -435,8 +524,10 @@ export default function App() {
         setCurrentUserEmail(user.email);
         if (user.email === "lalitasuraj27@gmail.com") {
           setIsAdminAuth(true);
+          localStorage.setItem("isAdmin", "true");
         } else {
           setIsAdminAuth(false);
+          localStorage.removeItem("isAdmin");
         }
         if (screen === "login") {
            setScreen("public_home");
@@ -577,6 +668,31 @@ export default function App() {
     localStorage.setItem('movieBookmarks', JSON.stringify(bookmarks));
   }, [bookmarks]);
 
+  // Viewed Episodes State for Web Series
+  const [viewedEpisodes, setViewedEpisodes] = React.useState<Record<string, string[]>>(() => {
+    try {
+      const stored = localStorage.getItem('viewedEpisodes');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+  React.useEffect(() => {
+    localStorage.setItem('viewedEpisodes', JSON.stringify(viewedEpisodes));
+  }, [viewedEpisodes]);
+
+  const toggleEpisodeViewed = (movieId: string, episodeId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setViewedEpisodes(prev => {
+      const movieViewed = prev[movieId] || [];
+      const updated = movieViewed.includes(episodeId) 
+        ? movieViewed.filter(id => id !== episodeId)
+        : [...movieViewed, episodeId];
+      return { ...prev, [movieId]: updated };
+    });
+  };
+
   const toggleBookmark = (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -659,11 +775,16 @@ export default function App() {
   const [newComment, setNewComment] = useState("");
 
   useEffect(() => {
+    const fetchStartTime = performance.now();
     // 🔥 Humne query mein 'orderBy' jod diya hai taaki Instagram jaisa live setup bane
     const q = query(collection(db, "movies"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        const fetchEndTime = performance.now();
+        if (process.env.NODE_ENV !== "production") {
+          console.log(`[Performance] Movies data loaded in ${(fetchEndTime - fetchStartTime).toFixed(2)}ms (Count: ${snapshot.size})`);
+        }
         const moviesData: Movie[] = [];
         snapshot.forEach((doc) => {
           moviesData.push({ id: doc.id, ...doc.data() } as Movie);
@@ -960,6 +1081,7 @@ export default function App() {
       await signOut(auth);
       setCurrentUserEmail(null);
       setIsAdminAuth(false);
+      localStorage.removeItem("isAdmin");
       setEmail("");
       setPassword("");
       setPin("");
@@ -1119,8 +1241,10 @@ export default function App() {
 
   const handleAddSeries = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isUploading) return;
     setAdminError("");
     setAdminSuccess("");
+    setIsUploading(true);
 
     const validEpisodes = episodes.filter((ep) => ep.link.trim() !== "");
     if (!seriesTitle || !seriesDesc || validEpisodes.length === 0) {
@@ -1170,6 +1294,10 @@ export default function App() {
           isHighlight: isSeriesHighlight,
           trailerUrl: seriesTrailerUrl,
         };
+        
+        if (bringToTop) {
+          updateData.createdAt = new Date();
+        }
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Web Series updated successfully!");
         setEditingMovieId(null);
@@ -1311,8 +1439,10 @@ export default function App() {
 
   const handleAddMovie = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isUploading) return;
     setAdminError("");
     setAdminSuccess("");
+    setIsUploading(true);
 
     if (!movieTitle || !movieDesc || (!link620p && !link720p && !link1080p)) {
       setAdminError(
@@ -1332,7 +1462,9 @@ export default function App() {
         if (link1080p) localStorage.setItem(`movieUrl_1080p_${editingMovieId}`, link1080p);
         if (liveStreamLink) localStorage.setItem(`movieUrl_live_${editingMovieId}`, liveStreamLink);
 
-        const updateData = {
+        const bringToTop = window.confirm("Republish: Do you want to bring this Movie to the top of the list?\n\nClick OK to move it to top, or Cancel to keep it in its original position.");
+        
+        const updateData: any = {
           title: movieTitle,
           description: movieDesc,
           image: movieImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
@@ -1356,6 +1488,10 @@ export default function App() {
           liveStreamLink: liveStreamLink,
           trailerUrl: movieTrailerUrl,
         };
+        
+        if (bringToTop) {
+          updateData.createdAt = new Date();
+        }
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Movie updated successfully!");
         setEditingMovieId(null);
@@ -1879,14 +2015,13 @@ export default function App() {
                         <label className="block text-sm font-medium text-slate-300 mb-2">
                           Primary Descriptor (Title) *
                         </label>
-                        <input
-                          required
+                        <DebouncedInput required
                           type="text"
                           value={movieTitle}
-                          onChange={(e) => setMovieTitle(e.target.value)}
+                           onChange={(val: string) => setMovieTitle(val)} 
                           placeholder="e.g., The Matrix Protocol"
                           className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all shadow-inner"
-                        />
+                         />
                       </div>
 
                       <div className="md:col-span-2">
@@ -1945,14 +2080,13 @@ export default function App() {
                         <label className="block text-sm font-medium text-slate-300 mb-2">
                           Data Narrative (Storyline) *
                         </label>
-                        <textarea
-                          required
+                        <DebouncedTextarea required
                           rows={4}
                           value={movieDesc}
-                          onChange={(e) => setMovieDesc(e.target.value)}
+                           onChange={(val: string) => setMovieDesc(val)} 
                           placeholder="Initialize context parameters..."
                           className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all resize-y shadow-inner"
-                        />
+                         />
                       </div>
 
                       <div className="md:col-span-2">
@@ -2120,25 +2254,23 @@ export default function App() {
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               620p Package URL
                             </label>
-                            <input
-                              type="url"
+                            <DebouncedInput type="url"
                               value={link620p}
-                              onChange={(e) => setLink620p(e.target.value)}
+                               onChange={(val: string) => setLink620p(val)} 
                               placeholder="https://..."
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               620p File Size (Optional)
                             </label>
-                            <input
-                              type="text"
+                            <DebouncedInput type="text"
                               value={size620p}
-                              onChange={(e) => setSize620p(e.target.value)}
+                               onChange={(val: string) => setSize620p(val)} 
                               placeholder="e.g., 300 MB"
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2146,25 +2278,23 @@ export default function App() {
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               720p Package URL
                             </label>
-                            <input
-                              type="url"
+                            <DebouncedInput type="url"
                               value={link720p}
-                              onChange={(e) => setLink720p(e.target.value)}
+                               onChange={(val: string) => setLink720p(val)} 
                               placeholder="https://..."
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               720p File Size (Optional)
                             </label>
-                            <input
-                              type="text"
+                            <DebouncedInput type="text"
                               value={size720p}
-                              onChange={(e) => setSize720p(e.target.value)}
+                               onChange={(val: string) => setSize720p(val)} 
                               placeholder="e.g., 700 MB"
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2172,25 +2302,23 @@ export default function App() {
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               1080p Package URL
                             </label>
-                            <input
-                              type="url"
+                            <DebouncedInput type="url"
                               value={link1080p}
-                              onChange={(e) => setLink1080p(e.target.value)}
+                               onChange={(val: string) => setLink1080p(val)} 
                               placeholder="https://..."
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               1080p File Size (Optional)
                             </label>
-                            <input
-                              type="text"
+                            <DebouncedInput type="text"
                               value={size1080p}
-                              onChange={(e) => setSize1080p(e.target.value)}
+                               onChange={(val: string) => setSize1080p(val)} 
                               placeholder="e.g., 1.5 GB"
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2198,25 +2326,23 @@ export default function App() {
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               720p HEVC Package URL
                             </label>
-                            <input
-                              type="url"
+                            <DebouncedInput type="url"
                               value={link720pHevc}
-                              onChange={(e) => setLink720pHevc(e.target.value)}
+                               onChange={(val: string) => setLink720pHevc(val)} 
                               placeholder="https://..."
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               720p HEVC File Size
                             </label>
-                            <input
-                              type="text"
+                            <DebouncedInput type="text"
                               value={size720pHevc}
-                              onChange={(e) => setSize720pHevc(e.target.value)}
+                               onChange={(val: string) => setSize720pHevc(val)} 
                               placeholder="e.g., 400 MB"
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2224,25 +2350,23 @@ export default function App() {
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               1080p HEVC Package URL
                             </label>
-                            <input
-                              type="url"
+                            <DebouncedInput type="url"
                               value={link1080pHevc}
-                              onChange={(e) => setLink1080pHevc(e.target.value)}
+                               onChange={(val: string) => setLink1080pHevc(val)} 
                               placeholder="https://..."
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               1080p HEVC File Size
                             </label>
-                            <input
-                              type="text"
+                            <DebouncedInput type="text"
                               value={size1080pHevc}
-                              onChange={(e) => setSize1080pHevc(e.target.value)}
+                               onChange={(val: string) => setSize1080pHevc(val)} 
                               placeholder="e.g., 800 MB"
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2250,25 +2374,23 @@ export default function App() {
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               4K Package URL
                             </label>
-                            <input
-                              type="url"
+                            <DebouncedInput type="url"
                               value={link4k}
-                              onChange={(e) => setLink4k(e.target.value)}
+                               onChange={(val: string) => setLink4k(val)} 
                               placeholder="https://..."
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-400 mb-1">
                               4K File Size
                             </label>
-                            <input
-                              type="text"
+                            <DebouncedInput type="text"
                               value={size4k}
-                              onChange={(e) => setSize4k(e.target.value)}
+                               onChange={(val: string) => setSize4k(val)} 
                               placeholder="e.g., 4.5 GB"
                               className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                             />
                           </div>
                         </div>
 
@@ -2355,13 +2477,12 @@ export default function App() {
                         <label className="text-slate-300 font-medium text-sm flex items-center gap-2">
                           <Play className="w-4 h-4 text-red-500" /> Trailer URL (YouTube/MP4 link)
                         </label>
-                        <input
-                          type="url"
+                        <DebouncedInput type="url"
                           value={movieTrailerUrl}
-                          onChange={(e) => setMovieTrailerUrl(e.target.value)}
+                           onChange={(val: string) => setMovieTrailerUrl(val)} 
                           placeholder="https://youtube.com/watch?v=..."
                           className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                        />
+                         />
                       </div>
 
                       <div className="flex flex-col gap-2 p-4 bg-slate-900/50 rounded-xl border border-slate-700">
@@ -2381,14 +2502,13 @@ export default function App() {
                           </label>
                         </div>
                         {isLiveStream && (
-                          <input
-                            type="url"
+                          <DebouncedInput type="url"
                             value={liveStreamLink}
-                            onChange={(e) => setLiveStreamLink(e.target.value)}
+                             onChange={(val: string) => setLiveStreamLink(val)} 
                             placeholder="https://..."
                             className="w-full mt-2 bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
                             required={isLiveStream}
-                          />
+                           />
                         )}
                       </div>
 
@@ -2463,14 +2583,13 @@ export default function App() {
                         <label className="block text-sm font-medium text-slate-300 mb-2">
                           Series Title *
                         </label>
-                        <input
-                          required
+                        <DebouncedInput required
                           type="text"
                           value={seriesTitle}
-                          onChange={(e) => setSeriesTitle(e.target.value)}
+                           onChange={(val: string) => setSeriesTitle(val)} 
                           placeholder="e.g., Stranger Things"
                           className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all shadow-inner"
-                        />
+                         />
                       </div>
 
                       <div className="md:col-span-2">
@@ -2529,14 +2648,13 @@ export default function App() {
                         <label className="block text-sm font-medium text-slate-300 mb-2">
                           Series Description *
                         </label>
-                        <textarea
-                          required
+                        <DebouncedTextarea required
                           rows={4}
                           value={seriesDesc}
-                          onChange={(e) => setSeriesDesc(e.target.value)}
+                           onChange={(val: string) => setSeriesDesc(val)} 
                           placeholder="Initialize context parameters..."
                           className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all resize-y shadow-inner"
-                        />
+                         />
                       </div>
 
                       <div className="md:col-span-2">
@@ -2983,13 +3101,12 @@ export default function App() {
                         <label className="text-slate-300 font-medium text-sm flex items-center gap-2">
                           <Play className="w-4 h-4 text-red-500" /> Trailer URL (YouTube/MP4 link)
                         </label>
-                        <input
-                          type="url"
+                        <DebouncedInput type="url"
                           value={seriesTrailerUrl}
-                          onChange={(e) => setSeriesTrailerUrl(e.target.value)}
+                           onChange={(val: string) => setSeriesTrailerUrl(val)} 
                           placeholder="https://youtube.com/watch?v=..."
                           className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                        />
+                         />
                       </div>
                     </div>
 
@@ -3234,9 +3351,9 @@ export default function App() {
             >
               {/* Highlights Slider Edge Style */}
               {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
-                <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-2">
+                <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-2 relative">
                   <h2 
-                    className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 cursor-pointer select-none w-fit"
+                    className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 cursor-pointer select-none w-fit relative z-10"
                     onClick={() => {
                       setStarClicks(prev => {
                         if (prev + 1 >= 3) {
@@ -3250,6 +3367,8 @@ export default function App() {
                   >
                     <span>⭐</span> Top Highlight
                   </h2>
+                  
+
                 </div>
               )}
               {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
@@ -3621,9 +3740,10 @@ export default function App() {
               
 
 
-              <div className="flex flex-col gap-10">
+              <div className="flex flex-col gap-10 relative">
+
                 {/* UP: Poster & Description Layout */}
-                <div className="flex flex-col md:flex-row gap-8 lg:gap-16">
+                <div className="flex flex-col md:flex-row gap-8 lg:gap-16 relative z-10">
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -3884,24 +4004,34 @@ export default function App() {
                         <div className="flex flex-col gap-4">
                           {selectedMovie.episodes &&
                           selectedMovie.episodes.length > 0 ? (
-                            selectedMovie.episodes.map((ep, i) => (
-                              <button
-                                key={ep.id}
-                                onClick={(e) => { e.preventDefault(); setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id, url: ep.link }); setScreen('mediator'); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.01]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <div className="flex items-center gap-4 relative z-10">
-                                  <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-950/50 text-red-400 font-bold border border-red-900/50">
-                                    {i + 1}
-                                  </span>
-                                  <span className="font-bold text-slate-200 group-hover:text-white transition-colors text-lg">
-                                    {ep.title}
-                                  </span>
-                                </div>
-                                <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                              </button>
-                            ))
+                            selectedMovie.episodes.map((ep, i) => {
+                              const isViewed = viewedEpisodes[selectedMovie.id]?.includes(ep.id);
+                              return (
+                              <div key={ep.id} className="relative group/ep flex items-center gap-2">
+                                <button
+                                  onClick={(e) => toggleEpisodeViewed(selectedMovie.id, ep.id, e)}
+                                  className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-lg border transition-all ${isViewed ? 'bg-green-600/20 border-green-500/50 text-green-500 hover:bg-green-600/30' : 'bg-slate-900 border-slate-700 text-slate-500 hover:bg-slate-800'}`}
+                                  title={isViewed ? "Mark as unread" : "Mark as read"}
+                                >
+                                  {isViewed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+                                </button>
+                                <button
+                                  onClick={(e) => { e.preventDefault(); setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id, url: ep.link }); setScreen('mediator'); }}
+                                  className={`flex-1 group relative overflow-hidden bg-slate-900 border ${isViewed ? 'border-slate-700/50 opacity-60' : 'border-red-900/50 hover:border-red-400'} rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.01] hover:opacity-100`}
+                                >
+                                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
+                                  <div className="flex items-center gap-4 relative z-10">
+                                    <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-950/50 text-red-400 font-bold border border-red-900/50">
+                                      {i + 1}
+                                    </span>
+                                    <span className={`font-bold transition-colors text-lg ${isViewed ? 'text-slate-400 line-through' : 'text-slate-200 group-hover:text-white'}`}>
+                                      {ep.title}
+                                    </span>
+                                  </div>
+                                  <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
+                                </button>
+                              </div>
+                            )})
                           ) : (
                             <div className="col-span-full border border-red-900/50 bg-red-950/30 p-4 rounded-xl text-red-400 flex items-center gap-2">
                               <AlertCircle className="w-5 h-5" /> No episodes
