@@ -1,4 +1,7 @@
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /login
+Disallow: /pin_check
 
-Sitemap: /sitemap.xml
+Sitemap: https://aplex-cinema-4us.vercel.app/sitemap.xml

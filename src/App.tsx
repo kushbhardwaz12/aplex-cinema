@@ -31,13 +31,18 @@ import {
   Pencil,
   Activity,
   CheckCircle,
-  XCircle, ChevronLeft, ChevronRight } from "lucide-react";
+  XCircle,
+  Circle,
+  ChevronLeft,
+  ChevronRight,
+  Globe } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   collection,
   addDoc,
   deleteDoc,
   doc,
+  getDoc,
   setDoc,
   onSnapshot,
   updateDoc,
@@ -54,7 +59,7 @@ import { MediatorPage } from "./pages/MediatorPage";
 const workerScript = `
   self.onmessage = async (e) => {
     try {
-      const { file, maxWidth } = e.data;
+      const { file, maxWidth, quality = 0.6 } = e.data;
       const bitmap = await createImageBitmap(file);
       let width = bitmap.width;
       let height = bitmap.height;
@@ -65,7 +70,7 @@ const workerScript = `
       const canvas = new OffscreenCanvas(width, height);
       const ctx = canvas.getContext('2d');
       ctx.drawImage(bitmap, 0, 0, width, height);
-      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality });
       self.postMessage({ success: true, blob });
     } catch (err) {
       self.postMessage({ success: false, error: err.message });
@@ -73,7 +78,7 @@ const workerScript = `
   };
 `;
 
-const compressImage = (file: File, maxWidth: number = 800): Promise<string> => {
+const compressImage = (file: File, maxWidth: number = 600, quality: number = 0.6): Promise<string> => {
   return new Promise((resolve, reject) => {
     if (typeof window.OffscreenCanvas !== 'undefined' && typeof window.Worker !== 'undefined') {
       const blob = new Blob([workerScript], { type: 'application/javascript' });
@@ -84,22 +89,22 @@ const compressImage = (file: File, maxWidth: number = 800): Promise<string> => {
           reader.onload = (ev) => resolve(ev.target?.result as string);
           reader.readAsDataURL(e.data.blob);
         } else {
-          fallbackCompress(file, maxWidth).then(resolve).catch(reject);
+          fallbackCompress(file, maxWidth, quality).then(resolve).catch(reject);
         }
         worker.terminate();
       };
       worker.onerror = () => {
-        fallbackCompress(file, maxWidth).then(resolve).catch(reject);
+        fallbackCompress(file, maxWidth, quality).then(resolve).catch(reject);
         worker.terminate();
       };
-      worker.postMessage({ file, maxWidth });
+      worker.postMessage({ file, maxWidth, quality });
     } else {
-      fallbackCompress(file, maxWidth).then(resolve).catch(reject);
+      fallbackCompress(file, maxWidth, quality).then(resolve).catch(reject);
     }
   });
 };
 
-const fallbackCompress = (file: File, maxWidth: number): Promise<string> => {
+const fallbackCompress = (file: File, maxWidth: number, quality: number = 0.6): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -118,12 +123,20 @@ const fallbackCompress = (file: File, maxWidth: number): Promise<string> => {
         canvas.width = width;
         canvas.height = height;
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.7));
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = reject;
     };
     reader.onerror = reject;
   });
+};
+
+const safeSetLocalStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn("safeSetLocalStorage failed:", err);
+  }
 };
 
 // --- Types ---
@@ -170,32 +183,40 @@ interface Movie {
 }
 
 
-const DebouncedInput = ({ value, onChange, debounce = 300, ...props }: any) => {
-  const [localValue, setLocalValue] = React.useState(value);
-  const onChangeRef = React.useRef(onChange);
-  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
-  React.useEffect(() => { if (value !== undefined) setLocalValue(value); }, [value]);
-  React.useEffect(() => {
-    const handler = setTimeout(() => {
-      onChangeRef.current(localValue);
-    }, debounce);
-    return () => clearTimeout(handler);
-  }, [localValue, debounce]);
-  return <input {...props} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+const DebouncedInput = ({ value, onChange, debounce = 0, onBlur, ...props }: any) => {
+  const [localValue, setLocalValue] = React.useState(value ?? "");
+  React.useEffect(() => { if (value !== undefined) setLocalValue(value ?? ""); }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLocalValue(val);
+    if (onChange) onChange(val);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (onChange) onChange(localValue);
+    if (onBlur) onBlur(e);
+  };
+
+  return <input {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
 };
 
-const DebouncedTextarea = ({ value, onChange, debounce = 300, ...props }: any) => {
-  const [localValue, setLocalValue] = React.useState(value);
-  const onChangeRef = React.useRef(onChange);
-  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
-  React.useEffect(() => { if (value !== undefined) setLocalValue(value); }, [value]);
-  React.useEffect(() => {
-    const handler = setTimeout(() => {
-      onChangeRef.current(localValue);
-    }, debounce);
-    return () => clearTimeout(handler);
-  }, [localValue, debounce]);
-  return <textarea {...props} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+const DebouncedTextarea = ({ value, onChange, debounce = 0, onBlur, ...props }: any) => {
+  const [localValue, setLocalValue] = React.useState(value ?? "");
+  React.useEffect(() => { if (value !== undefined) setLocalValue(value ?? ""); }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalValue(val);
+    if (onChange) onChange(val);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    if (onChange) onChange(localValue);
+    if (onBlur) onBlur(e);
+  };
+
+  return <textarea {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
 };
 
 const CATEGORIES = [
@@ -296,13 +317,14 @@ const fetchFileSize = async (url: string): Promise<string> => {
 };
 
 
-export const generateCleanSlug = (title) => {
+export const generateCleanSlug = (title: string | undefined | null) => {
   if (!title) return "movie";
-  return title
-    .toLowerCase()
-    .replace(/hdtc|1080p|720p|480p|x264|full-movie/gi, '')
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, '');
+  return title.toString().toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
 };
 
 export const getCleanTitle = (title) => {
@@ -351,6 +373,63 @@ export default function App() {
   const [liveStreamClickCount, setLiveStreamClickCount] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
 
+  // Google Search Console & SEO verification state
+  const [gscVerificationCode, setGscVerificationCode] = useState(
+    typeof window !== "undefined" ? localStorage.getItem("gsc_verification_code") || "" : ""
+  );
+  const [gscSaved, setGscSaved] = useState(false);
+
+  // Sync Google verification code from Firestore & update meta tag
+  useEffect(() => {
+    const fetchSeoSettings = async () => {
+      try {
+        const snap = await getDoc(doc(db, "site_settings", "seo"));
+        if (snap.exists() && snap.data()?.verificationCode) {
+          const code = snap.data().verificationCode;
+          setGscVerificationCode(code);
+          localStorage.setItem("gsc_verification_code", code);
+          const metaTag = document.querySelector('meta[name="google-site-verification"]');
+          if (metaTag) {
+            metaTag.setAttribute("content", code);
+          }
+        } else {
+          const localCode = localStorage.getItem("gsc_verification_code");
+          if (localCode) {
+            const metaTag = document.querySelector('meta[name="google-site-verification"]');
+            if (metaTag) {
+              metaTag.setAttribute("content", localCode);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch SEO settings:", e);
+      }
+    };
+    fetchSeoSettings();
+  }, []);
+
+  const handleSaveGscCode = async () => {
+    try {
+      await setDoc(doc(db, "site_settings", "seo"), { verificationCode: gscVerificationCode }, { merge: true });
+      localStorage.setItem("gsc_verification_code", gscVerificationCode);
+      const metaTag = document.querySelector('meta[name="google-site-verification"]');
+      if (metaTag) {
+        metaTag.setAttribute("content", gscVerificationCode);
+      }
+      setGscSaved(true);
+      setTimeout(() => setGscSaved(false), 3500);
+    } catch (err) {
+      console.error("Error saving GSC code to Firestore:", err);
+      localStorage.setItem("gsc_verification_code", gscVerificationCode);
+      const metaTag = document.querySelector('meta[name="google-site-verification"]');
+      if (metaTag) {
+        metaTag.setAttribute("content", gscVerificationCode);
+      }
+      setGscSaved(true);
+      setTimeout(() => setGscSaved(false), 3500);
+    }
+  };
+
   useEffect(() => {
     if (screen === 'public_home') {
       setMovieClickCount(0);
@@ -363,13 +442,66 @@ export default function App() {
   const isDesktop = !isMobileOrTablet;
   
   // Instantly block ads for admin using synchronous localStorage check
-  const isStrictlyAdmin = localStorage.getItem("isAdmin") === "true";
+  const isStrictlyAdmin = typeof window !== 'undefined' && localStorage.getItem("isAdmin") === "true";
+
+  // Active ad cleanup effect for Admin Panel
+  useEffect(() => {
+    if (isStrictlyAdmin || isAdminAuth || screen === "admin_dashboard") {
+      const purgeAdArtifacts = () => {
+        // Remove script tags
+        ['social-bar-script', 'popunder-script'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.remove();
+        });
+
+        // Remove any dynamically loaded ad network scripts
+        document.querySelectorAll('script').forEach(s => {
+          if (s.src && (
+            s.src.includes('profitableratecpmnetwork') ||
+            s.src.includes('effectivecpmnetwork') ||
+            s.src.includes('highperformanceformat')
+          )) {
+            s.remove();
+          }
+        });
+
+        // Remove any floating social bars, popunder overlays, or ad network iframes
+        document.querySelectorAll('iframe, div, ins').forEach(el => {
+          const id = el.id || '';
+          const cls = typeof el.className === 'string' ? el.className : '';
+          const isAdIframe = el.tagName === 'IFRAME' && (
+            (el as HTMLIFrameElement).src?.includes('profitablerate') ||
+            (el as HTMLIFrameElement).src?.includes('effectivecpm') ||
+            (el as HTMLIFrameElement).src?.includes('highperformanceformat')
+          );
+          if (
+            id.includes('pl31063') ||
+            id.includes('container-80950') ||
+            id.includes('b0ca63') ||
+            id.includes('1c92c8') ||
+            cls.includes('adsterra') ||
+            isAdIframe
+          ) {
+            el.remove();
+          }
+        });
+      };
+
+      purgeAdArtifacts();
+      const t1 = setTimeout(purgeAdArtifacts, 300);
+      const t2 = setTimeout(purgeAdArtifacts, 1000);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [isStrictlyAdmin, isAdminAuth, screen]);
 
   useEffect(() => {
-    if (isStrictlyAdmin || isAdminAuth) return;
-    if (screen === "admin_dashboard") return;
+    if (isStrictlyAdmin || isAdminAuth || screen === "admin_dashboard") return;
     
     const timer = setTimeout(() => {
+      if (localStorage.getItem("isAdmin") === "true") return;
       const existingScript = document.getElementById('social-bar-script');
       if (isMobileOrTablet && !existingScript) {
         const script = document.createElement('script');
@@ -384,10 +516,10 @@ export default function App() {
 
   const [popunderInjected, setPopunderInjected] = useState(false);
   useEffect(() => {
-    if (isStrictlyAdmin || isAdminAuth) return;
-    if (screen === "admin_dashboard") return;
+    if (isStrictlyAdmin || isAdminAuth || screen === "admin_dashboard") return;
     
     const timer = setTimeout(() => {
+      if (localStorage.getItem("isAdmin") === "true") return;
       const existingScript = document.getElementById('popunder-script');
       if (isDesktop && !existingScript) {
         const script = document.createElement('script');
@@ -407,7 +539,7 @@ export default function App() {
   
   // type can be 'movie_click' | 'download_click' | 'live_stream_click' | 'input_click'
   const triggerAdOverlay = (nextAction: () => void, adKey?: string, type: 'movie_click' | 'download_click' | 'live_stream_click' | 'input_click' = 'download_click') => {
-    if (screen === "admin_dashboard") {
+    if (screen === "admin_dashboard" || isAdminAuth || isStrictlyAdmin) {
       nextAction();
       return;
     }
@@ -844,34 +976,91 @@ export default function App() {
     return () => unsubscribe();
   }, [selectedMovie]);
 
-  // URL updating logic
+  // Fast direct movie fetch for SEO bots & direct links (avoids waiting for 194 movies)
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path.startsWith("/movie/")) {
+      const parts = path.split("/");
+      const movieId = parts[2];
+      if (movieId) {
+        getDoc(doc(db, "movies", movieId))
+          .then((snap) => {
+            if (snap.exists()) {
+              const m = { id: snap.id, ...snap.data() } as Movie;
+              setSelectedMovie(m);
+              setScreen("movie_detail");
+              setIsLoadingMovies(false);
+            }
+          })
+          .catch((err) => {
+            console.warn("Direct movie fetch for SEO/routing failed:", err);
+          });
+      }
+    }
+  }, []);
+
+  // URL and Dynamic SEO updating logic
   useEffect(() => {
     if (screen === "movie_detail" && selectedMovie) {
-      document.title = selectedMovie.title;
+      document.title = `${selectedMovie.title} - Download Latest HD | Aplex Cinema`;
       
-      // Update Description
+      const cleanDesc = selectedMovie.description
+        ? selectedMovie.description.replace(/\s+/g, " ").trim().substring(0, 160)
+        : `Download and watch ${selectedMovie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Aplex Cinema.`;
+      
+      // Update Meta Description
       let metaDesc = document.querySelector('meta[name="description"]') || document.createElement('meta');
       metaDesc.setAttribute('name', 'description');
-      metaDesc.setAttribute('content', selectedMovie.description?.substring(0, 160) || "");
+      metaDesc.setAttribute('content', cleanDesc);
       document.head.appendChild(metaDesc);
+
+      // Canonical URL
+      const slug = generateCleanSlug(selectedMovie.title);
+      const canonicalUrl = `https://aplex-cinema-4us.vercel.app/movie/${selectedMovie.id}/${slug}`;
+      let canonicalLink = document.querySelector('link[rel="canonical"]') || document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      canonicalLink.setAttribute('href', canonicalUrl);
+      document.head.appendChild(canonicalLink);
 
       // Update OG Title
       let ogTitle = document.querySelector('meta[property="og:title"]') || document.createElement('meta');
       ogTitle.setAttribute('property', 'og:title');
-      ogTitle.setAttribute('content', selectedMovie.title);
+      ogTitle.setAttribute('content', `${selectedMovie.title} - Aplex Cinema`);
       document.head.appendChild(ogTitle);
+
+      // Update OG Description
+      let ogDesc = document.querySelector('meta[property="og:description"]') || document.createElement('meta');
+      ogDesc.setAttribute('property', 'og:description');
+      ogDesc.setAttribute('content', cleanDesc);
+      document.head.appendChild(ogDesc);
 
       // Update OG Image
       let ogImage = document.querySelector('meta[property="og:image"]') || document.createElement('meta');
       ogImage.setAttribute('property', 'og:image');
-      ogImage.setAttribute('content', selectedMovie.image);
+      ogImage.setAttribute('content', selectedMovie.image || "https://aplex-cinema-4us.vercel.app/aplex_logo.png");
       document.head.appendChild(ogImage);
 
       // Update OG URL
       let ogUrl = document.querySelector('meta[property="og:url"]') || document.createElement('meta');
       ogUrl.setAttribute('property', 'og:url');
-      ogUrl.setAttribute('content', window.location.href);
+      ogUrl.setAttribute('content', canonicalUrl);
       document.head.appendChild(ogUrl);
+
+      // Update Twitter Cards
+      let twTitle = document.querySelector('meta[name="twitter:title"]') || document.createElement('meta');
+      twTitle.setAttribute('name', 'twitter:title');
+      twTitle.setAttribute('content', `${selectedMovie.title} - Aplex Cinema`);
+      document.head.appendChild(twTitle);
+
+      let twDesc = document.querySelector('meta[name="twitter:description"]') || document.createElement('meta');
+      twDesc.setAttribute('name', 'twitter:description');
+      twDesc.setAttribute('content', cleanDesc);
+      document.head.appendChild(twDesc);
+
+      let twImage = document.querySelector('meta[name="twitter:image"]') || document.createElement('meta');
+      twImage.setAttribute('name', 'twitter:image');
+      twImage.setAttribute('content', selectedMovie.image || "https://aplex-cinema-4us.vercel.app/aplex_logo.png");
+      document.head.appendChild(twImage);
       
       let jsonLdScript = document.querySelector('#movie-json-ld');
       if (!jsonLdScript) {
@@ -884,19 +1073,29 @@ export default function App() {
         "@context": "https://schema.org",
         "@type": selectedMovie.type === "series" ? "TVSeries" : "Movie",
         "name": selectedMovie.title,
-        "image": selectedMovie.image,
-        "description": selectedMovie.description,
-        "url": window.location.href
+        "image": selectedMovie.image || "https://aplex-cinema-4us.vercel.app/aplex_logo.png",
+        "description": cleanDesc,
+        "genre": selectedMovie.category || "Action",
+        "url": canonicalUrl,
+        "inLanguage": ["Hindi", "English"]
       };
       jsonLdScript.textContent = JSON.stringify(jsonLdData);
 
-      const slug = generateCleanSlug(selectedMovie.title);
       const newUrl = `/movie/${selectedMovie.id}/${slug}`;
       if (window.location.pathname !== newUrl) {
          window.history.pushState({ screen: "movie_detail", movieId: selectedMovie.id }, '', newUrl);
       }
     } else if (screen === "public_home") {
       document.title = "Aplex Cinema - Download Latest HD Movies & Web Series";
+      
+      let canonicalLink = document.querySelector('link[rel="canonical"]') || document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      canonicalLink.setAttribute('href', 'https://aplex-cinema-4us.vercel.app/');
+      document.head.appendChild(canonicalLink);
+
+      let ogUrl = document.querySelector('meta[property="og:url"]');
+      if (ogUrl) ogUrl.setAttribute('content', 'https://aplex-cinema-4us.vercel.app/');
+
       if (window.location.pathname !== "/") {
          window.history.pushState({ screen: "public_home" }, '', "/");
       }
@@ -1104,6 +1303,7 @@ export default function App() {
     if (showAdminLoginForm) {
       if (email === "kushbhardwajadmin" && password === "1983") {
         setIsAdminAuth(true);
+        localStorage.setItem("isAdmin", "true");
         setScreen("admin_dashboard");
         return;
       } else {
@@ -1126,11 +1326,13 @@ export default function App() {
         try {
           await signInWithEmailAndPassword(auth, emailLower, password);
           setIsAdminAuth(true);
+          localStorage.setItem("isAdmin", "true");
           setScreen("admin_dashboard");
         } catch (error: any) {
           try {
             await createUserWithEmailAndPassword(auth, emailLower, password);
             setIsAdminAuth(true);
+            localStorage.setItem("isAdmin", "true");
             setScreen("admin_dashboard");
           } catch (createError: any) {
             setLoginError(error.message);
@@ -1183,7 +1385,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 600);
+        const compressed = await compressImage(file, 500, 0.65);
         setSeriesImage(compressed);
       } catch (error) {
         console.error("Image compression failed:", error);
@@ -1196,7 +1398,7 @@ export default function App() {
     if (files.length > 0) {
       try {
         const compressedImages = await Promise.all(
-          files.map(file => compressImage(file, 800))
+          files.map(file => compressImage(file, 650, 0.55))
         );
         setSeriesScreenshots(prev => [...prev, ...compressedImages]);
       } catch (error) {
@@ -1246,10 +1448,21 @@ export default function App() {
     setAdminSuccess("");
     setIsUploading(true);
 
-    const validEpisodes = episodes.filter((ep) => ep.link.trim() !== "");
-    if (!seriesTitle || !seriesDesc || validEpisodes.length === 0) {
+    const validEpisodes = episodes.filter((ep) => ep.link?.trim() !== "");
+    const hasAnyLink = validEpisodes.length > 0 || Boolean(
+      seriesLink620p?.trim() ||
+      seriesLink720p?.trim() ||
+      seriesLink1080p?.trim() ||
+      seriesLink720pHevc?.trim() ||
+      seriesLink1080pHevc?.trim() ||
+      seriesLink4k?.trim() ||
+      (seriesExtraLinks && seriesExtraLinks.some((l) => l?.url?.trim()))
+    );
+
+    if (!seriesTitle?.trim() || !seriesDesc?.trim() || !hasAnyLink) {
+      setIsUploading(false);
       setAdminError(
-        "Please fill Title, Description and at least one valid Episode Link.",
+        "Please fill Title, Storyline/Description and at least one valid Episode Link or Download Link.",
       );
       return;
     }
@@ -1260,14 +1473,21 @@ export default function App() {
       }
 
       if (editingMovieId) {
-        if (seriesLink620p) localStorage.setItem(`movieUrl_620p_${editingMovieId}`, seriesLink620p);
-        if (seriesLink720p) localStorage.setItem(`movieUrl_720p_${editingMovieId}`, seriesLink720p);
-        if (seriesLink1080p) localStorage.setItem(`movieUrl_1080p_${editingMovieId}`, seriesLink1080p);
+        if (seriesLink620p) safeSetLocalStorage(`movieUrl_620p_${editingMovieId}`, seriesLink620p);
+        if (seriesLink720p) safeSetLocalStorage(`movieUrl_720p_${editingMovieId}`, seriesLink720p);
+        if (seriesLink1080p) safeSetLocalStorage(`movieUrl_1080p_${editingMovieId}`, seriesLink1080p);
         validEpisodes.forEach((ep, idx) => {
-            localStorage.setItem(`movieUrl_ep${idx}_${editingMovieId}`, ep.link);
+          safeSetLocalStorage(`movieUrl_ep${idx}_${editingMovieId}`, ep.link);
         });
 
-        const updateData = {
+        let bringToTop = false;
+        try {
+          bringToTop = window.confirm("Republish: Do you want to bring this Web Series to the top of the list?\n\nClick OK to move it to top, or Cancel to keep it in its original position.");
+        } catch {
+          bringToTop = false;
+        }
+
+        const updateData: any = {
           title: seriesTitle,
           description: seriesDesc,
           image: seriesImage || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
@@ -1298,6 +1518,12 @@ export default function App() {
         if (bringToTop) {
           updateData.createdAt = new Date();
         }
+
+        const payloadStr = JSON.stringify(updateData);
+        if (payloadStr.length > 900000) {
+          throw new Error("Series data with screenshots is too large (>900KB). Please remove 1-2 screenshots.");
+        }
+
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Web Series updated successfully!");
         setEditingMovieId(null);
@@ -1305,11 +1531,11 @@ export default function App() {
         const docRef = doc(collection(db, "movies"));
         const docId = docRef.id;
         
-        if (seriesLink620p) localStorage.setItem(`movieUrl_620p_${docId}`, seriesLink620p);
-        if (seriesLink720p) localStorage.setItem(`movieUrl_720p_${docId}`, seriesLink720p);
-        if (seriesLink1080p) localStorage.setItem(`movieUrl_1080p_${docId}`, seriesLink1080p);
+        if (seriesLink620p) safeSetLocalStorage(`movieUrl_620p_${docId}`, seriesLink620p);
+        if (seriesLink720p) safeSetLocalStorage(`movieUrl_720p_${docId}`, seriesLink720p);
+        if (seriesLink1080p) safeSetLocalStorage(`movieUrl_1080p_${docId}`, seriesLink1080p);
         validEpisodes.forEach((ep, idx) => {
-            localStorage.setItem(`movieUrl_ep${idx}_${docId}`, ep.link);
+          safeSetLocalStorage(`movieUrl_ep${idx}_${docId}`, ep.link);
         });
 
         const newSeries = {
@@ -1345,6 +1571,11 @@ export default function App() {
           trailerUrl: seriesTrailerUrl,
         };
 
+        const payloadStr = JSON.stringify(newSeries);
+        if (payloadStr.length > 900000) {
+          throw new Error("Series data with screenshots is too large (>900KB). Please remove 1-2 screenshots.");
+        }
+
         await setDoc(docRef, newSeries);
         setAdminSuccess("Web Series published successfully!");
       }
@@ -1377,9 +1608,11 @@ export default function App() {
         // Only redirect to home if we added a new series, otherwise stay in admin panel
         if (!editingMovieId) setScreen("public_home");
       }, 1500);
-    } catch (error) {
-      setAdminError("Failed to save series to network.");
+    } catch (error: any) {
+      setAdminError(error?.message || "Failed to save series to network.");
       console.error(error);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -1415,7 +1648,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 600);
+        const compressed = await compressImage(file, 500, 0.65);
         setMovieImage(compressed);
       } catch (error) {
         console.error("Image compression failed:", error);
@@ -1428,7 +1661,7 @@ export default function App() {
     if (files.length > 0) {
       try {
         const compressedImages = await Promise.all(
-          files.map(file => compressImage(file, 800))
+          files.map(file => compressImage(file, 650, 0.55))
         );
         setMovieScreenshots(prev => [...prev, ...compressedImages]);
       } catch (error) {
@@ -1444,9 +1677,21 @@ export default function App() {
     setAdminSuccess("");
     setIsUploading(true);
 
-    if (!movieTitle || !movieDesc || (!link620p && !link720p && !link1080p)) {
+    const hasAnyLink = Boolean(
+      link620p?.trim() ||
+      link720p?.trim() ||
+      link1080p?.trim() ||
+      link720pHevc?.trim() ||
+      link1080pHevc?.trim() ||
+      link4k?.trim() ||
+      liveStreamLink?.trim() ||
+      (extraLinks && extraLinks.some((l) => l?.url?.trim()))
+    );
+
+    if (!movieTitle?.trim() || !movieDesc?.trim() || !hasAnyLink) {
+      setIsUploading(false);
       setAdminError(
-        "Please fill at least Title, Description and one valid Download Link.",
+        "Please fill at least Title, Storyline/Description and at least one valid Download Link or Live Stream Link.",
       );
       return;
     }
@@ -1457,12 +1702,17 @@ export default function App() {
       }
 
       if (editingMovieId) {
-        if (link620p) localStorage.setItem(`movieUrl_620p_${editingMovieId}`, link620p);
-        if (link720p) localStorage.setItem(`movieUrl_720p_${editingMovieId}`, link720p);
-        if (link1080p) localStorage.setItem(`movieUrl_1080p_${editingMovieId}`, link1080p);
-        if (liveStreamLink) localStorage.setItem(`movieUrl_live_${editingMovieId}`, liveStreamLink);
+        if (link620p) safeSetLocalStorage(`movieUrl_620p_${editingMovieId}`, link620p);
+        if (link720p) safeSetLocalStorage(`movieUrl_720p_${editingMovieId}`, link720p);
+        if (link1080p) safeSetLocalStorage(`movieUrl_1080p_${editingMovieId}`, link1080p);
+        if (liveStreamLink) safeSetLocalStorage(`movieUrl_live_${editingMovieId}`, liveStreamLink);
 
-        const bringToTop = window.confirm("Republish: Do you want to bring this Movie to the top of the list?\n\nClick OK to move it to top, or Cancel to keep it in its original position.");
+        let bringToTop = false;
+        try {
+          bringToTop = window.confirm("Republish: Do you want to bring this Movie to the top of the list?\n\nClick OK to move it to top, or Cancel to keep it in its original position.");
+        } catch {
+          bringToTop = false;
+        }
         
         const updateData: any = {
           title: movieTitle,
@@ -1492,6 +1742,12 @@ export default function App() {
         if (bringToTop) {
           updateData.createdAt = new Date();
         }
+
+        const payloadStr = JSON.stringify(updateData);
+        if (payloadStr.length > 900000) {
+          throw new Error("Movie data with screenshots is too large (>900KB). Please remove 1-2 screenshots.");
+        }
+
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
         setAdminSuccess("Movie updated successfully!");
         setEditingMovieId(null);
@@ -1499,10 +1755,10 @@ export default function App() {
         const docRef = doc(collection(db, "movies"));
         const docId = docRef.id;
 
-        if (link620p) localStorage.setItem(`movieUrl_620p_${docId}`, link620p);
-        if (link720p) localStorage.setItem(`movieUrl_720p_${docId}`, link720p);
-        if (link1080p) localStorage.setItem(`movieUrl_1080p_${docId}`, link1080p);
-        if (liveStreamLink) localStorage.setItem(`movieUrl_live_${docId}`, liveStreamLink);
+        if (link620p) safeSetLocalStorage(`movieUrl_620p_${docId}`, link620p);
+        if (link720p) safeSetLocalStorage(`movieUrl_720p_${docId}`, link720p);
+        if (link1080p) safeSetLocalStorage(`movieUrl_1080p_${docId}`, link1080p);
+        if (liveStreamLink) safeSetLocalStorage(`movieUrl_live_${docId}`, liveStreamLink);
 
         const newMovie = {
           title: movieTitle,
@@ -1533,6 +1789,11 @@ export default function App() {
           liveStreamLink: liveStreamLink,
           trailerUrl: movieTrailerUrl,
         };
+
+        const payloadStr = JSON.stringify(newMovie);
+        if (payloadStr.length > 900000) {
+          throw new Error("Movie data with screenshots is too large (>900KB). Please remove 1-2 screenshots.");
+        }
 
         await setDoc(docRef, newMovie);
         setAdminSuccess("Movie published successfully!");
@@ -1566,9 +1827,11 @@ export default function App() {
         // Only redirect to home if we added a new movie, otherwise stay in admin panel
         if (!editingMovieId) setScreen("public_home");
       }, 1500);
-    } catch (error) {
-      setAdminError("Failed to save movie to network.");
+    } catch (error: any) {
+      setAdminError(error?.message || "Failed to save movie to network.");
       console.error(error);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -1966,6 +2229,85 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Google Search Console & SEO Master Panel */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                  <div>
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                      <Globe className="w-5 h-5 text-emerald-400" />
+                      Google Search Console & SEO Control
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Manage site indexing, sitemaps, and search ownership verification.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      {movies.length} Pages in Sitemap
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+                    <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Live XML Sitemap</div>
+                    <a
+                      href="https://aplex-cinema-4us.vercel.app/sitemap.xml"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-semibold text-emerald-400 hover:text-emerald-300 underline break-all flex items-center gap-1.5"
+                    >
+                      <span>https://aplex-cinema-4us.vercel.app/sitemap.xml</span>
+                    </a>
+                    <p className="text-xs text-slate-500 mt-1">Submit this URL in Search Console &gt; Sitemaps.</p>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+                    <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Robots.txt Engine</div>
+                    <a
+                      href="https://aplex-cinema-4us.vercel.app/robots.txt"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-semibold text-blue-400 hover:text-blue-300 underline break-all flex items-center gap-1.5"
+                    >
+                      <span>https://aplex-cinema-4us.vercel.app/robots.txt</span>
+                    </a>
+                    <p className="text-xs text-slate-500 mt-1">Configured for full Googlebot crawlability without cloaking.</p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/80 p-4 sm:p-5 rounded-xl border border-slate-800">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Google Search Console Verification Token / Meta Code:
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                      type="text"
+                      value={gscVerificationCode}
+                      onChange={(e) => setGscVerificationCode(e.target.value)}
+                      placeholder="e.g. google-site-verification token or code"
+                      className="flex-1 bg-slate-900 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveGscCode}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-5 py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Save Token
+                    </button>
+                  </div>
+                  {gscSaved && (
+                    <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1 font-medium">
+                      ✓ Verification code saved to database & meta tags updated immediately!
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-500 mt-2">
+                    Search Console me <strong>HTML tag</strong> option select karein aur content code yahan paste karke Save karein.
+                  </p>
+                </div>
               </div>
 
               {/* Upload Form */}
@@ -2564,10 +2906,20 @@ export default function App() {
                         )}
                         <button
                           type="submit"
-                          className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
+                          disabled={isUploading}
+                          className="w-full md:w-auto bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
                         >
-                          <CheckCircle2 className="w-5 h-5" />
-                          {editingMovieId ? "Update Movie" : "Publish to Network"}
+                          {isUploading ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              {editingMovieId ? "Updating Movie..." : "Publishing to Network..."}
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-5 h-5" />
+                              {editingMovieId ? "Update Movie" : "Publish to Network"}
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -3161,10 +3513,20 @@ export default function App() {
                         )}
                         <button
                           type="submit"
-                          className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
+                          disabled={isUploading}
+                          className="w-full md:w-auto bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] transition-all flex items-center justify-center gap-2"
                         >
-                          <CheckCircle2 className="w-5 h-5" />
-                          {editingMovieId ? "Update Series" : "Publish Series to Network"}
+                          {isUploading ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              {editingMovieId ? "Updating Series..." : "Publishing Series to Network..."}
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-5 h-5" />
+                              {editingMovieId ? "Update Series" : "Publish Series to Network"}
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -4005,11 +4367,11 @@ export default function App() {
                           {selectedMovie.episodes &&
                           selectedMovie.episodes.length > 0 ? (
                             selectedMovie.episodes.map((ep, i) => {
-                              const isViewed = viewedEpisodes[selectedMovie.id]?.includes(ep.id);
+                              const isViewed = viewedEpisodes[selectedMovie.id]?.includes(String(ep.id));
                               return (
                               <div key={ep.id} className="relative group/ep flex items-center gap-2">
                                 <button
-                                  onClick={(e) => toggleEpisodeViewed(selectedMovie.id, ep.id, e)}
+                                  onClick={(e) => toggleEpisodeViewed(selectedMovie.id, String(ep.id), e)}
                                   className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-lg border transition-all ${isViewed ? 'bg-green-600/20 border-green-500/50 text-green-500 hover:bg-green-600/30' : 'bg-slate-900 border-slate-700 text-slate-500 hover:bg-slate-800'}`}
                                   title={isViewed ? "Mark as unread" : "Mark as read"}
                                 >
