@@ -3,15 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/aplex_logo.png" />
-    <meta
-      name="google-site-verification"
-      content="YOUR_GOOGLE_SITE_VERIFICATION_CODE_HERE"
-    />
+    <meta name="google-site-verification" content="" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta
       name="description"
       content="Aplex Cinema - Download and stream the latest Bollywood, Hollywood, South Indian movies and Web Series in 4K, 1080p, 720p, 480p and HEVC Dual Audio."
@@ -80,37 +77,84 @@
       body {
         margin: 0;
         padding: 0;
-        background-color: #000000;
+        background-color: #080806;
+        color: #f8fafc;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
-      .initial-loader {
+      .prerender-shell {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 24px 20px;
+      }
+      .prerender-header {
         display: flex;
-        flex-direction: column;
         align-items: center;
-        justify-content: center;
-        min-height: 100vh;
-        background-color: #000000;
+        justify-content: space-between;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #1e293b;
+      }
+      .prerender-logo {
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: -0.5px;
         color: #ffffff;
-        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .prerender-logo span {
+        color: #dc2626;
+      }
+      .prerender-badge {
+        background: #dc2626;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin-left: 6px;
+      }
+      .prerender-hero {
+        padding: 40px 0 20px 0;
+        text-align: center;
+      }
+      .prerender-hero h1 {
+        font-size: 28px;
+        font-weight: 800;
+        color: #ffffff;
+        margin-bottom: 12px;
+      }
+      .prerender-hero p {
+        color: #94a3b8;
+        font-size: 15px;
+        max-width: 720px;
+        margin: 0 auto 20px auto;
+        line-height: 1.6;
+      }
+      .prerender-categories {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+        margin-bottom: 30px;
+      }
+      .prerender-chip {
+        background: #1e293b;
+        color: #cbd5e1;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        font-size: 13px;
+        text-decoration: none;
       }
       .loader-spinner {
-        width: 40px;
-        height: 40px;
-        border: 4px solid rgba(255, 255, 255, 0.1);
-        border-left-color: #ef4444; /* red-500 */
+        width: 36px;
+        height: 36px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-left-color: #ef4444;
         border-radius: 50%;
         animation: spin 1s linear infinite;
-        margin-bottom: 20px;
+        margin: 20px auto;
       }
       @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
-      }
-      .seo-text {
-        color: #666;
-        font-size: 14px;
-        text-align: center;
-        max-width: 600px;
-        padding: 0 20px;
       }
       .seo-movie-directory {
         background-color: #030712;
@@ -149,16 +193,35 @@
   </head>
   <body>
     <div id="root">
-      <div class="initial-loader">
-        <div class="loader-spinner"></div>
-        <h1 style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Aplex Cinema</h1>
-        <p class="seo-text">
-          Loading the latest HD movies, web series, and exclusive content. Aplex Cinema is your premium destination for streaming and downloading high-quality entertainment.
-        </p>
+      <div class="prerender-shell">
+        <header class="prerender-header">
+          <div class="prerender-logo">
+            APLEX <span>CINEMA</span> <span class="prerender-badge">4US</span>
+          </div>
+        </header>
+        <main class="prerender-hero">
+          <h1>Latest HD Movies, Dual Audio & Web Series Online</h1>
+          <p>
+            Explore and stream Bollywood, Hollywood, South Indian, and Punjabi movies in 4K, 1080p, 720p, and 480p HEVC Dual Audio formats. High-speed direct downloads and streaming on Aplex Cinema.
+          </p>
+          <div class="prerender-categories">
+            <span class="prerender-chip">Bollywood</span>
+            <span class="prerender-chip">Hollywood</span>
+            <span class="prerender-chip">South Indian (Hindi Dubbed)</span>
+            <span class="prerender-chip">Punjabi Movies</span>
+            <span class="prerender-chip">Action</span>
+            <span class="prerender-chip">Thriller</span>
+            <span class="prerender-chip">Drama</span>
+            <span class="prerender-chip">Comedy</span>
+            <span class="prerender-chip">Web Series</span>
+          </div>
+          <div class="loader-spinner" aria-label="Loading interactive cinema interface"></div>
+        </main>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   
+
 
 
 
@@ -198,7 +261,9 @@
       <a href="/movie/1ZJ2TceEIW3ECfmh8HLu/peddi-2026-uncut-ds4k-web-dl-hindi-dd20-telugu-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Peddi (2026) UNCUT DS4K WEB-DL [Hindi (DD2.0) & Telugu] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/1bLLQzMrMaqEtzSFrPnf/haiwaan-2026-v2-hq-hdtc-hindi-line-1080p-720p-480p-x264hevc-full-movie">Haiwaan (2026) V2 HQ-HDTC Hindi (LiNE) 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/1oO9Bl8ERpZwa063n7Wa/declassified-operation-sindoor-season-1-web-dl-hindi-dd20-english-1080p-720p-480p-x264hevc-all-episodes-discovery-series">Declassified: Operation Sindoor (Season 1) WEB-DL [Hindi (DD2.0) & English] 1080p 720p & 480p [x264/HEVC] | [ALL Episodes] | Discovery+ Series</a>
+      <a href="/movie/26gB7ZB4Hg5VwO2HclSE/irumudi-2026-ds4k-web-dl-hindi-dd51-telugu-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Irumudi (2026) DS4K WEB-DL [Hindi (DD5.1) & Telugu] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/2UkIxGLfmCwFDJf1PnvZ/last-man-in-tower-2026-hq-hdtc-hindi-line-1080p-720p-480p-x264-full-movie"> Last Man in Tower (2026) HQ-HDTC Hindi (LiNE) 1080p 720p & 480p [x264] | Full Movie</a>
+      <a href="/movie/2gZdYYi48fIlg4B2nFWT/neagley-season-1-web-dl-hindi-dd51-english-4k-1080p-720p-480p-x26410bit-hevc-all-episodes-primevideo-series">Neagley (Season 1) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | [ALL Episodes] | PrimeVideo Series</a>
       <a href="/movie/2lBaiW9iPHkUeogd2kGh/bury-the-devil-2026-web-dl-hindi-dd51-english-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Bury the Devil (2026) WEB-DL [Hindi (DD5.1) & English] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/3A5dntKwSvpLQQX7fmZ6/i-will-find-you-season-1-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x264esubs-nf-series">I Will Find You (Season 1) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/ESubs] | NF Series</a>
       <a href="/movie/3ClxCzDKh2FHrAxtZV95/sarpanch-2026-web-dl-punjabi-dd51-4k-1080p-720p-480p-x264hevc-full-movie"> Sarpanch (2026) WEB-DL [Punjabi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
@@ -252,6 +317,7 @@
       <a href="/movie/GLHObt8zeQYsQnHfZDl4/obsession-2026-ds4k-web-dl-english-dd51-4k-1080p-720p-480p-x26410bit-hevc-full-movie">Obsession (2026) DS4K WEB-DL [English DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/GXYNeZ8wKHIytrE5fiLX/avatar-aang-the-last-airbender-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Avatar Aang: The Last Airbender (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/Gh6nKhOnwRVY4OUJUBQM/cocaine-2026-web-dl-hindi-dd51-1080p-720p-480p-x264hevc-full-movie">Cocaine (2026) WEB-DL [Hindi DD5.1] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
+      <a href="/movie/GhwXvyrvn7iMRAb027DK/the-vvaan-2026-v2-hq-hdtc-hindi-line-1080p-720p-480p-x264hevc-full-movie">The Vvaan (2026) V2 HQ-HDTC Hindi (LiNE) 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/H4ua636oNtJhik3s5bs9/singh-vs-kaur-2-2026-v2-hq-hdtc-punjabi-line-1080p-720p-480p-x264hevc-full-movie">Singh vs Kaur 2 (2026) V2 HQ-HDTC Punjabi (LiNE) 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/H7IwJc4AtccaPAT7o5li/one-night-only-2026-web-dl-english-dd51-4k-1080p-720p-480p-x26410bit-hevc-full-movie">One Night Only (2026) WEB-DL [English DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/HPWyk435eGJ5eSyN2Urb/the-loved-one-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> The Loved One (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
@@ -267,22 +333,28 @@
       <a href="/movie/KIT9HFoivBQk6lKRZHyD/dial-1975-2026-ds4k-web-dl-hindi-20-4k-1080p-720p-480p-x264hevc-full-movie">Dial 1975 (2026) DS4K WEB-DL [Hindi 2.0] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/KSna9gf9XjAAKM5Fjand/jumper-2026-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-full-movie"> Jumper (2026) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/L2x5hoyuE4gfdJ3Vub2G/uttar-da-puttar-2026-hdtc-hindi-clean-1080p-720p-480p-x264-full-movie"> Uttar Da Puttar (2026) HDTC [Hindi (Clean)] 1080p 720p & 480p [x264] | Full Movie</a>
+      <a href="/movie/LF63FI111HK65q6VdAeb/the-great-indian-kapil-show-season-5-web-dl-hindi-dd51-1080p-720p-480p-x264hevc-hd-nf-series-ep-01-added">The Great Indian Kapil Show (Season 5) WEB-DL [Hindi DD5.1] 1080p 720p & 480p [x264/HEVC] HD | [NF Series] [EP-01 Added]</a>
       <a href="/movie/LUntQkdR7ZwxEbXDBIYB/the-railway-men-the-untold-story-of-bhopal-1984-season-1-web-dl-hindi-dd51-1080p-720p-480p-x264hevc-hd-all-episodes-netflix-series">The Railway Men – The Untold Story of Bhopal 1984 (Season 1) WEB-DL [Hindi DD5.1] 1080p 720p & 480p [x264/HEVC] HD | ALL Episodes [NetFlix Series]</a>
       <a href="/movie/LsTLtf2Jho0BZpuAepte/unidentified-2026-web-dl-hindi-dd51-arabic-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Unidentified (2026) WEB-DL [Hindi (DD5.1) & Arabic] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/MFwQwtLqs4ilRg5ZUYLR/hunkkaar-the-roar-season-1-ds4k-web-dl-hindi-dd51-4k-1080p-720p-480p-x26410bit-hevc-hd-all-episodes-jiohotstar-series">Hunkkaar: The Roar (Season 1) DS4K WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] HD | ALL Episodes [JioHotStar Series]</a>
       <a href="/movie/MOIY7xxhpgBfkJ0GQgY9/awarapan-2-2026-hq-hdtc-hindi-line-1080p-720p-480p-x264hevc-full-movie">Awarapan 2 (2026) HQ-HDTC Hindi (LiNE) 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/N1u2P5AyzeL1J5LPDfdS/raktanchal-season-3-web-dl-hindi-dd51-4k-1080p-720p-480p-x26410bit-hevc-hd-all-episodes-primevideo-series">Raktanchal (Season 3) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] HD | ALL Episodes [PrimeVideo Series]</a>
+      <a href="/movie/N20eckzOy9glysFoduho/dont-be-shy-2026-web-dl-hindi-dd51-4k-1080p-720p-480p-x26410bit-hevc-full-movie">Don’t Be Shy! (2026) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/NzitrWVPfwvjOqVjelJz/my-life-with-the-walter-boys-season-3-web-dl-hindi-dd51-english-4k-1080p-720p-480p-x264esubs-nf-series">My Life with the Walter Boys (Season 3) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p [x264/ESubs] | NF Series</a>
       <a href="/movie/O8Qto2jJSiF6qJd8AIAf/thukra-ke-mera-pyaar-season-2-ds4k-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-hd-jiohotstar-series-ep-45-added">Thukra Ke Mera Pyaar (Season 2) DS4K WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] HD| [JioHotstar Series] [EP-45 Added]</a>
       <a href="/movie/P8j4XA70yrO4CNh8gQWh/dont-say-good-luck-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> Don’t Say Good Luck (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/POIgBd6QyxuaMicHzXKA/inspector-avinash-season-1-web-dl-hindi-dd51-4k-1080p-720p-480p-x264esubs-full-series">Inspector Avinash (Season 1) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/ESubs] | Full Series</a>
+      <a href="/movie/PbUHJ0HDK8EE4Ajikw1r/mobland-season-2-web-dl-hindi-20-english-4k-1080p-720p-480p-x26410bit-hevc-paramount-series-ep-02-added">MobLand (Season 2) WEB-DL [Hindi (2.0) & English] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | Paramount+ Series | [EP-02 Added]</a>
       <a href="/movie/PsRroJBXbAwuCbtRQeky/dutton-ranch-season-1-web-dl-hindi-dd20-english-4k-1080p-720p-480p-dual-audio">Dutton Ranch (Season 1) WEB-DL [Hindi (DD2.0) & English] 4K 1080p 720p & 480p Dual Audio </a>
       <a href="/movie/PvQ6Z02RblMVUN2x1eOQ/satluj-2026-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-full-movie">Satluj (2026) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/QPEjyM2XFu7ybRwyNQg8/72-hours-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">72 HOURS (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/Ql9XLeyLz8O6wEq5BNlc/the-devil-wears-prada-2-2026-bluray-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">The Devil Wears Prada 2 (2026) BluRay [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/RflEDviPgZIcPR2atHc4/the-awakening-2026-web-dl-hindi-dd20-1080p-720p-480p-x264esubs-full-movie">The Awakening (2026) WEB-DL [Hindi DD2.0] 1080p 720p & 480p [x264/ESubs] | Full Movie</a>
       <a href="/movie/RhWlyBqeB4F7rou53gcx/jeevan-ya-bheema-con-2026-hdtc-hindi-clean-1080p-720p-480p-x264-full-movie">Jeevan Ya Bheema Con? (2026) HDTC [Hindi (Clean)] 1080p 720p & 480p [x264] | Full Movie</a>
       <a href="/movie/Rodus2QOhiH5EdCMDEWT/aakhri-sawal-2026-web-dl-hindi-dd20-1080p-720p-480p-x264hevc-full-movie">Aakhri Sawal (2026) WEB-DL [Hindi DD2.0] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/SJh0FPZX6CP9P9d6Qar6/mousetrap-season-1-web-dl-hindi-dd51-english-4k-1080p-720p-480p-x26410bit-hevc-all-episodes-nf-series">Mousetrap (Season 1) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | [ALL Episodes] | NF Series</a>
       <a href="/movie/SMCDeqVblc8y0RXdM09z/salmokji-whispering-water-2026-web-dl-hindi-dd51-korean-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Salmokji: Whispering Water (2026) WEB-DL [Hindi (DD5.1) & Korean] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/SbyBCqM78vFmYQ5XZqUe/habeebi-2026-ds4k-web-dl-hindi-dd51-tamil-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> Habeebi (2026) DS4K WEB-DL [Hindi (DD5.1) & Tamil] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/Sz32qPIrSEDXvPzrrVpK/momacu-2026-web-dl-hindi-20-1080p-720p-480p-x264hevc-full-movie"> Momacu (2026) WEB-DL [Hindi 2.0] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/T6PARyFU2fbr542RQdRO/pitt-siyapa-2026-web-dl-hindi-20-punjabi-1080p-720p-480p-dual-audio-x264hevc-full-movie"> Pitt Siyapa (2026) WEB-DL [Hindi (2.0) & Punjabi] 1080p 720p & 480p Dual Audio [x264/HEVC] | Full Movie</a>
       <a href="/movie/TJFaJqobFNhK1XHe20OT/the-death-of-robin-hood-2026-web-dl-english-dd51-4k-1080p-720p-480p-x26410bit-hevc-full-movie">The Death of Robin Hood (2026) WEB-DL [English DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | Full Movie</a>
@@ -315,8 +387,9 @@
       <a href="/movie/djZMr4luKaaXWtJRgsXL/wwe-summerslam-saturday-2026-web-dl-hindi-20-english-1080p-720p-480p-dual-audio-x264-full-event">WWE SummerSlam: Saturday (2026) WEB-DL [Hindi (2.0) & English] 1080p 720p & 480p Dual Audio [x264] | Full Event</a>
       <a href="/movie/eKwzgnkTJUGSxV6Ae5MS/the-india-story-2026-hq-hdtc-hindi-line-1080p-720p-480p-x264hevc-full-movie">The India Story (2026) HQ-HDTC [Hindi (LiNE)] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/eZXO62CUrnTBPyiq914A/mutiny-2026-web-dl-english-dd51-4k-1080p-720p-480p-x26410bit-hevc-full-movie"> Mutiny (2026) WEB-DL [English DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/ejBDgIb2hs5LjNXgfzmI/stranger-things-tales-from-85-season-2-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-nf-series">Stranger Things: Tales from ’85 (Season 2) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | NF Series </a>
       <a href="/movie/el8Rk5XoGmKrwq9C0xLJ/the-whisper-man-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> The Whisper Man (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
-      <a href="/movie/exxmVd4apk05qLCmKtno/bigg-boss-season-20-web-dl-hindi-20-1080p-720p-480p-x264-hd-jiohotstar-series-ep-09-added13th-sept">Bigg Boss (Season 20) WEB-DL [Hindi 2.0] 1080p 720p & 480p [x264] HD | [JioHotStar Series] [EP-09 Added][13th Sept]</a>
+      <a href="/movie/exxmVd4apk05qLCmKtno/bigg-boss-season-20-web-dl-hindi-20-1080p-720p-480p-x264-hd-jiohotstar-series">Bigg Boss (Season 20) WEB-DL [Hindi 2.0] 1080p 720p & 480p [x264] HD | [JioHotStar Series] </a>
       <a href="/movie/fG4shZEXGA4DmLK5W5UA/oru-durooha-saahacharyathil-2026-hindi-hqstudio-dub-ds4k-web-dl-4k-1080p-720p-480p-x264hevc-hd-full-movie-without-ads">Oru Durooha Saahacharyathil (2026) [Hindi – HQ/Studio Dub] DS4K WEB-DL 4K 1080p 720p 480p [x264/HEVC] HD | Full Movie [Without-ADs]</a>
       <a href="/movie/fIO84wcJzPD9C2yiQL2p/korean-kanakaraju-2026-ds4k-web-dl-hindi-dd51-telugu-4k-1080p-720p-480p-dual-audio-x264hevc-full-movie"> Korean Kanakaraju (2026) DS4K WEB-DL [Hindi (DD5.1) & Telugu] 4K 1080p 720p & 480p Dual Audio [x264/HEVC] | Full Movie</a>
       <a href="/movie/fLaOf8snn5CxwcflWrgF/gram-chikitsalay-season-2-web-dl-hindi-dd51-4k-1080p-720p-480p-x264esubs-amzn-series">Gram Chikitsalay (Season 2) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/ESubs] | AMZN Series</a>
@@ -330,8 +403,10 @@
       <a href="/movie/hVFejuzp5UEzaBH3ZH77/euphoria-2026-ds4k-web-dl-hindi-dd20-telugu-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> Euphoria (2026) DS4K WEB-DL [Hindi (DD2.0) & Telugu] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/ip3Tbds0QoBWTEWUrG9H/mutiny-2026-web-dl-english-dd51-1080p-720p-480p-x26410bit-hevc-full-movie"> Mutiny (2026) WEB-DL [English DD5.1] 1080p 720p & 480p [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/j127iHXAwJZAOSkW2AKY/insidious-out-of-the-further-2026-hq-hdtc-hindi-english-tamil-line-1080p-720p-480p-x264hevc-full-movie-english-subs">Insidious: Out of the Further (2026) HQ-HDTC [Hindi-English-Tamil] (LiNE) 1080p 720p & 480p [x264/HEVC] | Full Movie [English Subs]</a>
+      <a href="/movie/j8mUpLdjaIeKFTEnrYsr/daayra-2026-v2-hq-hdtc-hindi-malayalam-line-1080p-720p-480p-dual-audio-x264hevc-full-movie-sep-19th-2026-300mb-movies-bollywood">Daayra (2026) V2 HQ-HDTC [Hindi-Malayalam] (LiNE) 1080p 720p & 480p Dual Audio [x264/HEVC] | Full Movie  Sep-19th, 2026  300MB Movies BollyWood</a>
       <a href="/movie/jFt7JJzrBFgJuaeGK4XN/love-in-vietnam-2025-web-dl-hindi-dd51-1080p-720p-480p-x264hevc-full-movie">Love in Vietnam (2025) WEB-DL [Hindi DD5.1] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/jrhCL8PgMwCd3bBSdgAP/the-ordinary-jackpot-season-1-web-dl-hindi-dd20-korean-1080p-720p-480p-dual-audio-x264esubs-amzn-series-ep-02-added">The Ordinary Jackpot (Season 1) WEB-DL [Hindi (DD2.0) & Korean] 1080p 720p & 480p Dual Audio [x264/ESubs] | AMZN Series [EP – 02 Added]</a>
+      <a href="/movie/kTMiVkZfRpeQmw1oTEc0/gail-daughtry-and-the-celebrity-sex-pass-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Gail Daughtry and the Celebrity Sex Pass (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/kYain4DXYDcCyy55hHKP/stolen-girl-2025-bluray-hindi-dd51-english-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Stolen Girl (2025) BluRay [Hindi (DD5.1) & English] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/l1008iZNihcRF4JzQqeD/maa-inti-bangaram-2026-hindi-hqstudio-dub-ds4k-web-dl-4k-1080p-720p-480p-x264hevc-hd-full-movie-without-ads">Maa Inti Bangaram (2026) [Hindi – HQ/Studio Dub] DS4K WEB-DL 4K 1080p 720p 480p [x264/HEVC] HD | Full Movie [Without-ADs]</a>
       <a href="/movie/l569bBIpSm7ib15RNXam/paw-patrol-the-dino-movie-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> PAW Patrol: The Dino Movie (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
@@ -343,6 +418,8 @@
       <a href="/movie/minqGH93hiZzrHECdbtf/anbe-diana-2026-ds4k-web-dl-hindi-dd51-tamil-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Anbe Diana (2026) DS4K WEB-DL [Hindi (DD5.1) & Tamil] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/nBc0IayS2UgThqeOofR8/drishyam-3-2026-hindi-hqstudio-dub-ds4k-web-dl-4k"> Drishyam 3 (2026) [Hindi – HQ/Studio Dub] DS4K WEB-DL 4K </a>
       <a href="/movie/nJq1cjioYuhk76SigQzB/moda-kavida-vaatavarana-2026-web-dl-hindi-dd20-kannada-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Moda Kavida Vaatavarana (2026) WEB-DL [Hindi (DD2.0) & Kannada] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/nmtz76OECc8a0uJnyiBD/family-full-house-with-rohit-sharma-season-1-web-dl-hindi-20-1080p-720p-480p-x264-sonyliv-series-ep-04-added"> Family Full House with Rohit Sharma (Season 1) WEB-DL [Hindi 2.0] 1080p 720p & 480p [x264] | SonyLiV Series | EP 04 ADDED</a>
+      <a href="/movie/oSGwmyz7wzzJpI48uqe3/shaque-trust-no-one-season-1-web-dl-hindi-dd51-4k-1080p-720p-480p-x26410bit-hevc-hd-all-episodes-nf-series">Shaque: Trust No One (Season 1) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/10Bit-HEVC] HD | ALL Episodes [NF Series]</a>
       <a href="/movie/of5gxKt0M7wE73fejMxt/idhayam-murali-2026-ds4k-web-dl-hindi-dd51-tamil-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie"> Idhayam Murali (2026) DS4K WEB-DL [Hindi (DD5.1) & Tamil] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/ofA3WzLewJbyC9FLq38N/7-dogs-2026-hq-hdtc-hindi-line-1080p-720p-480p-x264hevc-full-movie">7 Dogs (2026) HQ-HDTC [Hindi (LiNE)] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/pCZzO0FQQn8v47wRD4qc/toy-story-5-2026-web-dl-hindi-line-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Toy Story 5 (2026) WEB-DL [Hindi (LiNE) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
@@ -351,6 +428,7 @@
       <a href="/movie/plYZBeFJwCv51tRxxTPp/ghamasaan-2026-ds4k-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-full-movie">Ghamasaan (2026) DS4K WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/qT7e5vx3hS3BcF21d6dN/ikka-2026-ds4k-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-full-movie">Ikka (2026) DS4K WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/qdS0n6huJ6FIo0jIOZf8/main-actor-nahin-hoon-2026-web-dl-hindi-dd51-1080p-720p-480p-x264hevc-full-movie">Main Actor Nahin Hoon (2026) WEB-DL [Hindi DD5.1] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
+      <a href="/movie/qi039x6HwznndVKY1RJN/the-paradise-2026-hq-hdtc-hindi-telugu-line-1080p-720p-480p-dual-audio-x264hevc-full-movie">The Paradise (2026) HQ-HDTC [Hindi – Telugu] (LiNE) 1080p 720p & 480p Dual Audio [x264/HEVC] | Full Movie</a>
       <a href="/movie/qxKatZ3VOFIDAhjixnZQ/demon-slayer-kimetsu-no-yaiba-infinity-castle-2025-bluray-hindi-english-dd20-japanese-dd51-1080p-720p-480p-multi-audio-x26410bit-hevc-full-movie">Demon Slayer: Kimetsu no Yaiba Infinity Castle (2025) BluRay [Hindi-English (DD2.0) & Japanese (DD5.1)] 1080p 720p & 480p Multi Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/r8m1d61fsNCyCUiWanGB/silo-season-3-web-dl-english-dd51-4k-1080p-720p-480p-x264esubs-appletv-series-ep-10-added">Silo (Season 3) WEB-DL [English DD5.1] 4K 1080p 720p & 480p [x264/ESubs] | AppleTV Series [EP-10 Added]</a>
       <a href="/movie/rAhFSCE4T9gFFu44Fh9B/econd-case-of-seetharam-2026-web-dl-hindi-dd20-kannada">econd Case of Seetharam (2026) WEB-DL [Hindi (DD2.0) & Kannada] </a>
@@ -359,17 +437,21 @@
       <a href="/movie/rXu77EmHpXJn8bzzgwW4/dheeram-2025-uncut-web-dl-hindi-dd20-malayalam-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Dheeram (2025) UNCUT WEB-DL [Hindi (DD2.0) & Malayalam] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/rbFckLUzwcWUShBv7iGP/chennai-love-story-2026-ds4k-web-dl-hindi-dd51-telugu-4k-1080p-720p-480p-dual-audio-x264hevc-full-movie">Chennai Love Story (2026) DS4K WEB-DL [Hindi (DD5.1) & Telugu] 4K 1080p 720p & 480p Dual Audio [x264/HEVC] | Full Movie</a>
       <a href="/movie/rlYK2yHpc4uuqb9VUzov/vishwanath-sons-2026-ds4k-web-dl-hindi-dd51-tamil-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Vishwanath & Sons (2026) DS4K WEB-DL [Hindi (DD5.1) & Tamil] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/rq3lm5eh7eitKxs5dqMt/great-awakening-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Great Awakening (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/rzqjvKpReb4Q9uP7jxoR/toxic-2026-hq-hdtc-hindi-kannada-tamil-telugu-1080p-720p-480p-x264hevcenglish-subtitles-full-movie">Toxic (2026) HQ-HDTC [Hindi-Kannada-Tamil-Telugu]  1080p 720p & 480p [x264/HEVC][English Subtitles] | Full Movie</a>
       <a href="/movie/s4f1tLSyzD2Mu7XsS7cp/pinocchio-unstrung-2026-web-dl-hindi-dd51-english-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Pinocchio: Unstrung (2026) WEB-DL [Hindi (DD5.1) & English] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/sPpnRAUtsRyB2e0rHIw3/the-gentlemen-season-2-web-dl-hindi-dd51-english-4k-1080p-720p-480p-x26410bit-hevc-all-episodes-nf-series">The Gentlemen (Season 2) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p [x264/10Bit-HEVC] | [ALL Episodes] | NF Series</a>
+      <a href="/movie/sloQwmJU1gNsXle2RXYk/the-love-hypothesis-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">The Love Hypothesis (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/t4KIuDWKG4OyWRD3oea3/last-days-2025-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Last Days (2025) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/t7PWihyP031neSMtdR7L/achyuta-avataaram-2026-web-dl-hindi-dd20-malayalam-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">Achyuta Avataaram (2026) WEB-DL [Hindi (DD2.0) & Malayalam] 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
+      <a href="/movie/uBFSd3hmdNxEctwnigt7/waiting-hai-season-1-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-hd-all-episodes-primevideo-series">Waiting Hai (Season 1) WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] HD | ALL Episodes [PrimeVideo Series]</a>
       <a href="/movie/uSFNCQiXRjjQEVFzdwv6/kankvanni-2026-web-dl-punjabi-dd20-4k-1080p-720p-480p-x264hevc-full-movie">Kankvanni (2026) WEB-DL [Punjabi DD2.0] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
       <a href="/movie/vbtF5klMhnVbX1vU0Uq6/lingam-season-1-web-dl-hindi-dd51-tamil-4k-1080p-720p-480p-dual-audio">Lingam (Season 1) WEB-DL [Hindi (DD5.1) & Tamil] 4K 1080p 720p & 480p Dual Audio</a>
       <a href="/movie/w5RwyiEEukPk4iVhSZqI/the-devil-2025-ds4k-web-dl-hindi-hq-dub-kannada-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">The Devil (2025) DS4K WEB-DL [Hindi (HQ-DUB) & Kannada] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/w8anB8hHTnlmBWDpvFR0/indrajaal-2026-hdtc-hindi-clean-1080p-720p-480p-x264-full-movie">Indrajaal (2026) HDTC [Hindi (Clean)] 1080p 720p & 480p [x264] | Full Movie</a>
       <a href="/movie/wKkdiCLXPkdJZRIODxXT/httpscatimagescoimages20260612vlcsnap-2026-06-12-00h26m25s372thjpg">https://catimages.co/images/2026/06/12/vlcsnap-2026-06-12-00h26m25s372.th.jpg</a>
       <a href="/movie/wsRIC29T9svrmgEwvXzu/cocktail-2-2026-hq-hdtc-hindi-line-1080p-720p-480p-x264hevc-full-movie">Cocktail 2 (2026) HQ-HDTC [Hindi (LiNE)] 1080p 720p & 480p [x264/HEVC] | Full Movie</a>
+      <a href="/movie/wxCeaTIfFYdc9McoDVKK/unabomber-2026-web-dl-hindi-dd51-english-4k-1080p-720p-480p-dual-audio-x26410bit-hevc-full-movie">UNABOMBER (2026) WEB-DL [Hindi (DD5.1) & English] 4K 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie</a>
       <a href="/movie/x6OsH70uXdPztOQ9aCS0/httpscatimagescoimages20260608vlcsnap-2026-06-08-19h15m35s473png">https://catimages.co/images/2026/06/08/vlcsnap-2026-06-08-19h15m35s473.png</a>
       <a href="/movie/xMVw2q4ZuSKpID4WrJrV/sardar-2-2026-v2-hq-hdtc-tamil-telugu-line-1080p-720p-480p-dual-audio-x264hevc-full-movie">Sardar 2 (2026) V2 HQ-HDTC [Tamil & Telugu] (LiNE) 1080p 720p & 480p Dual Audio [x264/HEVC] | Full Movie</a>
       <a href="/movie/xQ0oLMHFzebvbf2Av8lZ/bandar-2026-ds4k-web-dl-hindi-dd51-4k-1080p-720p-480p-x264hevc-full-movie">Bandar (2026) DS4K WEB-DL [Hindi DD5.1] 4K 1080p 720p & 480p [x264/HEVC] | Full Movie</a>

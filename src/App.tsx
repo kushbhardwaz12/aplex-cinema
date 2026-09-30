@@ -35,6 +35,7 @@ import {
   Circle,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
   Globe } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -54,6 +55,7 @@ import { signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPass
 import { db, auth, googleProvider } from "./firebase";
 import { AdsterraAd } from "./components/AdsterraAd";
 import { MediatorPage } from "./pages/MediatorPage";
+import { INITIAL_MOVIES } from "./data/initialMovies";
 
 // Image Compression Utility with Web Worker for offloading
 const workerScript = `
@@ -150,6 +152,8 @@ interface Episode {
   id: number;
   title: string;
   link: string;
+  watchOnlineUrl?: string;
+  note?: string;
 }
 
 interface Movie {
@@ -589,18 +593,40 @@ export default function App() {
     nextAction();
   };
 
+  const [isApkDownloaded, setIsApkDownloaded] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined") return false;
+      const downloaded = localStorage.getItem("aplex_apk_downloaded") === "true";
+      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
+      const isWebView = /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
+      return downloaded || isStandalone || isWebView;
+    } catch {
+      return false;
+    }
+  });
+
+  const handleApkDownload = () => {
+    try {
+      localStorage.setItem("aplex_apk_downloaded", "true");
+      setIsApkDownloaded(true);
+      setShowNotificationPopup(false);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
 
   const installPopupShown = useRef(false);
   useEffect(() => {
-    if (screen === "public_home" && !installPopupShown.current) {
+    if (screen === "public_home" && !installPopupShown.current && !isApkDownloaded) {
       const timer = setTimeout(() => {
         setShowNotificationPopup(true);
         installPopupShown.current = true;
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [screen]);
+  }, [screen, isApkDownloaded]);
   
 
 
@@ -733,7 +759,9 @@ export default function App() {
   const [seriesScreenshotUrlInput, setSeriesScreenshotUrlInput] = useState("");
   const [isSeriesHighlight, setIsSeriesHighlight] = useState(false);
   const [seriesTrailerUrl, setSeriesTrailerUrl] = useState("");
-  const [episodes, setEpisodes] = useState<{ link: string }[]>([{ link: "" }]);
+  const [episodes, setEpisodes] = useState<{ link: string; watchOnlineUrl?: string; note?: string; title?: string }[]>([
+    { link: "", watchOnlineUrl: "", note: "", title: "" },
+  ]);
   const [seriesLink620p, setSeriesLink620p] = useState("");
   const [seriesLink720p, setSeriesLink720p] = useState("");
   const [seriesLink1080p, setSeriesLink1080p] = useState("");
@@ -757,9 +785,20 @@ export default function App() {
   const seriesFileInputRef = useRef<HTMLInputElement>(null);
   const seriesScreenshotsInputRef = useRef<HTMLInputElement>(null);
 
-  // App Data State
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [isLoadingMovies, setIsLoadingMovies] = useState(true);
+  // App Data State (Hydrated immediately to guarantee Googlebot sees full catalog instantly)
+  const [movies, setMovies] = useState<Movie[]>(() => {
+    try {
+      const cached = localStorage.getItem("cached_movies_catalog");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return (INITIAL_MOVIES as Movie[]) || [];
+  });
+  const [isLoadingMovies, setIsLoadingMovies] = useState<boolean>(() => {
+    return false; // Instant availability
+  });
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [isSliderHovered, setIsSliderHovered] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
@@ -940,6 +979,9 @@ export default function App() {
         // Ab data direct top-to-bottom automatically line mein lag kar aayega
         setMovies(moviesData);
         setIsLoadingMovies(false);
+        try {
+          localStorage.setItem("cached_movies_catalog", JSON.stringify(moviesData.slice(0, 40)));
+        } catch {}
       },
       (error) => {
         console.error("Firestore Error in App.tsx movies onSnapshot:", error);
@@ -1448,7 +1490,9 @@ export default function App() {
     setAdminSuccess("");
     setIsUploading(true);
 
-    const validEpisodes = episodes.filter((ep) => ep.link?.trim() !== "");
+    const validEpisodes = episodes.filter(
+      (ep) => (ep.link && ep.link.trim() !== "") || (ep.watchOnlineUrl && ep.watchOnlineUrl.trim() !== "")
+    );
     const hasAnyLink = validEpisodes.length > 0 || Boolean(
       seriesLink620p?.trim() ||
       seriesLink720p?.trim() ||
@@ -1477,7 +1521,8 @@ export default function App() {
         if (seriesLink720p) safeSetLocalStorage(`movieUrl_720p_${editingMovieId}`, seriesLink720p);
         if (seriesLink1080p) safeSetLocalStorage(`movieUrl_1080p_${editingMovieId}`, seriesLink1080p);
         validEpisodes.forEach((ep, idx) => {
-          safeSetLocalStorage(`movieUrl_ep${idx}_${editingMovieId}`, ep.link);
+          if (ep.link) safeSetLocalStorage(`movieUrl_ep${idx}_${editingMovieId}`, ep.link);
+          if (ep.watchOnlineUrl) safeSetLocalStorage(`movieUrl_epOnline${idx}_${editingMovieId}`, ep.watchOnlineUrl);
         });
 
         let bringToTop = false;
@@ -1495,8 +1540,10 @@ export default function App() {
           screenshots: seriesScreenshots,
           episodes: validEpisodes.map((ep, idx) => ({
             id: Date.now() + idx,
-            title: `Episode ${idx + 1}`,
-            link: ep.link,
+            title: ep.title?.trim() || `Episode ${idx + 1}`,
+            link: ep.link?.trim() || "",
+            watchOnlineUrl: ep.watchOnlineUrl?.trim() || "",
+            note: ep.note?.trim() || "",
           })),
           link620p: seriesLink620p,
           link720p: seriesLink720p,
@@ -1535,7 +1582,8 @@ export default function App() {
         if (seriesLink720p) safeSetLocalStorage(`movieUrl_720p_${docId}`, seriesLink720p);
         if (seriesLink1080p) safeSetLocalStorage(`movieUrl_1080p_${docId}`, seriesLink1080p);
         validEpisodes.forEach((ep, idx) => {
-          safeSetLocalStorage(`movieUrl_ep${idx}_${docId}`, ep.link);
+          if (ep.link) safeSetLocalStorage(`movieUrl_ep${idx}_${docId}`, ep.link);
+          if (ep.watchOnlineUrl) safeSetLocalStorage(`movieUrl_epOnline${idx}_${docId}`, ep.watchOnlineUrl);
         });
 
         const newSeries = {
@@ -1549,8 +1597,10 @@ export default function App() {
           screenshots: seriesScreenshots,
           episodes: validEpisodes.map((ep, idx) => ({
             id: Date.now() + idx,
-            title: `Episode ${idx + 1}`,
-            link: ep.link,
+            title: ep.title?.trim() || `Episode ${idx + 1}`,
+            link: ep.link?.trim() || "",
+            watchOnlineUrl: ep.watchOnlineUrl?.trim() || "",
+            note: ep.note?.trim() || "",
           })),
           link620p: seriesLink620p,
           link720p: seriesLink720p,
@@ -1586,7 +1636,7 @@ export default function App() {
       setSeriesScreenshots([]);
       setIsSeriesHighlight(false);
       setSeriesTrailerUrl("");
-      setEpisodes([{ link: "" }]);
+      setEpisodes([{ link: "", watchOnlineUrl: "", note: "", title: "" }]);
       setSeriesLink620p("");
       setSeriesLink720p("");
       setSeriesLink1080p("");
@@ -1639,7 +1689,16 @@ export default function App() {
     setSeriesExtraLinks(movie.extraLinks || []);
     setIsSeriesHighlight(movie.isHighlight || false);
     setSeriesTrailerUrl(movie.trailerUrl || "");
-    setEpisodes(movie.episodes?.length ? movie.episodes.map(ep => ({ link: ep.link })) : [{ link: "" }]);
+    setEpisodes(
+      movie.episodes?.length
+        ? movie.episodes.map(ep => ({
+            link: ep.link || "",
+            watchOnlineUrl: ep.watchOnlineUrl || "",
+            note: ep.note || "",
+            title: ep.title || "",
+          }))
+        : [{ link: "", watchOnlineUrl: "", note: "", title: "" }]
+    );
     
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1957,16 +2016,19 @@ export default function App() {
                 </div>
               ) : (
                 screen !== "login" &&
-                screen !== "pin_check" && (
+                screen !== "pin_check" &&
+                !isApkDownloaded && (
                   <div className="flex items-center gap-2">
                     <a
                       href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.5)] uppercase tracking-wider"
+                      onClick={handleApkDownload}
+                      className="flex items-center gap-1.5 text-[11px] font-semibold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3 py-1 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide"
+                      title="Install APK"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      Install
+                      <Download className="w-3 h-3" />
+                      Install APK
                     </a>
                     {/* Login button removed as requested */}
                   </div>
@@ -3403,48 +3465,101 @@ export default function App() {
                         </div>
                       </div>
                       <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                        <LinkIcon className="w-5 h-5 text-red-400" /> Episodes
-                        (Links)
+                        <LinkIcon className="w-5 h-5 text-red-400" /> Episodes (Download, Watch Online & Notes)
                       </h3>
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {episodes.map((ep, index) => (
-                          <div key={index} className="flex gap-2 items-center">
-                            <span className="text-slate-400 font-bold w-6">
-                              {index + 1}.
-                            </span>
-                            <input
-                              type="url"
-                              value={ep.link}
-                              onChange={(e) => {
-                                const newEps = [...episodes];
-                                newEps[index].link = e.target.value;
-                                setEpisodes(newEps);
-                              }}
-                              placeholder="Episode Link https://..."
-                              className="flex-1 bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (episodes.length > 1) {
-                                  setEpisodes(
-                                    episodes.filter((_, i) => i !== index),
-                                  );
-                                }
-                              }}
-                              className="text-slate-500 hover:text-red-500 p-2"
-                            >
-                              ×
-                            </button>
+                          <div key={index} className="bg-slate-950/70 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl space-y-3 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="w-7 h-7 rounded-lg bg-red-950/70 border border-red-900/60 text-red-400 font-bold text-xs flex items-center justify-center">
+                                  {index + 1}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={ep.title ?? `Episode ${index + 1}`}
+                                  onChange={(e) => {
+                                    const newEps = [...episodes];
+                                    newEps[index].title = e.target.value;
+                                    setEpisodes(newEps);
+                                  }}
+                                  placeholder={`Episode ${index + 1}`}
+                                  className="bg-transparent font-bold text-white text-sm border-b border-dashed border-slate-700 focus:border-red-500 outline-none pb-0.5"
+                                />
+                              </div>
+                              {episodes.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEpisodes(episodes.filter((_, i) => i !== index));
+                                  }}
+                                  className="text-slate-500 hover:text-red-400 text-xs px-2.5 py-1 rounded-md bg-slate-900 hover:bg-red-950/40 border border-slate-800 transition-colors"
+                                >
+                                  ✕ Remove
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                                  Download Link (URL)
+                                </label>
+                                <input
+                                  type="url"
+                                  value={ep.link}
+                                  onChange={(e) => {
+                                    const newEps = [...episodes];
+                                    newEps[index].link = e.target.value;
+                                    setEpisodes(newEps);
+                                  }}
+                                  placeholder="Episode Download Link https://..."
+                                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-red-400 flex items-center gap-1 block mb-1">
+                                  <Play className="w-3.5 h-3.5 fill-current" /> Watch Online Link (URL - Right Corner)
+                                </label>
+                                <input
+                                  type="url"
+                                  value={ep.watchOnlineUrl || ""}
+                                  onChange={(e) => {
+                                    const newEps = [...episodes];
+                                    newEps[index].watchOnlineUrl = e.target.value;
+                                    setEpisodes(newEps);
+                                  }}
+                                  placeholder="Watch Online Stream URL https://..."
+                                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-xs"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-xs font-semibold text-amber-400 flex items-center gap-1 block mb-1">
+                                <Sparkles className="w-3.5 h-3.5" /> Important Message / Note (e.g. Bonus Episode, Finale, Hindi Dubbed)
+                              </label>
+                              <input
+                                type="text"
+                                value={ep.note || ""}
+                                onChange={(e) => {
+                                  const newEps = [...episodes];
+                                  newEps[index].note = e.target.value;
+                                  setEpisodes(newEps);
+                                }}
+                                placeholder="e.g. Bonus Episode, Special OVA, Season Finale, Hindi Audio Available"
+                                className="w-full bg-slate-900 border border-amber-900/40 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-amber-200 placeholder-slate-600 focus:ring-1 focus:ring-amber-500 outline-none transition-all text-xs"
+                              />
+                            </div>
                           </div>
                         ))}
                       </div>
                       <button
                         type="button"
-                        onClick={() => setEpisodes([...episodes, { link: "" }])}
-                        className="mt-4 text-sm text-red-400 hover:text-red-300 font-bold"
+                        onClick={() => setEpisodes([...episodes, { link: "", watchOnlineUrl: "", note: "", title: "" }])}
+                        className="mt-4 px-4 py-2 bg-red-950/50 hover:bg-red-900/50 text-red-400 hover:text-red-300 border border-red-900/50 rounded-xl text-sm font-bold flex items-center gap-2 transition-all cursor-pointer"
                       >
-                        + Add Episode
+                        <Plus className="w-4 h-4" /> Add Next Episode
                       </button>
                     </div>
 
@@ -3490,7 +3605,7 @@ export default function App() {
                               setSeriesDesc("");
                               setSeriesImage(null);
                               setSeriesScreenshots([]);
-                              setEpisodes([{ link: "" }]);
+                              setEpisodes([{ link: "", watchOnlineUrl: "", note: "", title: "" }]);
                               setSeriesLink620p("");
                               setSeriesLink720p("");
                               setSeriesLink1080p("");
@@ -3947,10 +4062,10 @@ export default function App() {
                   })()}
                 </div>
               )}
-{/* WARNING BANNER */}
+{/* WELCOME BANNER */}
               <div className="bg-[#1a0505] border border-red-900/40 py-2.5 px-4 z-40 relative shadow-inner mb-6 mx-4 sm:mx-6 lg:mx-8 rounded-lg flex items-center justify-center">
                 <div className="text-red-200/90 text-[11px] sm:text-[13px] md:text-sm font-medium tracking-wide whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] text-center w-full">
-                  <span className="mr-1">🎉</span> Welcome to <strong className="text-red-400 font-bold mx-1">Aplex Cinema 4US</strong> app. Please wait, content takes a moment to load ⏳
+                  <span className="mr-1">🎬</span> Welcome to <strong className="text-red-400 font-bold mx-1">Aplex Cinema 4US</strong> — Free HD Movies, Web Series & Dual Audio Direct Downloads
                 </div>
               </div>
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
@@ -3987,7 +4102,7 @@ export default function App() {
                     <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">
                       <span className="text-white">🔥</span> Latest Releases
                     </h1>
-                    <p className="text-slate-400 text-sm mt-1 font-medium">Total {movies.length} titles available</p>
+                    <p className="text-slate-400 text-sm mt-1 font-medium">Total {movies.length > 0 ? movies.length : '190+'} titles available</p>
                   </div>
 
                   <div className="relative w-full md:w-96">
@@ -3996,7 +4111,7 @@ export default function App() {
                     </div>
                     <input
                       type="text"
-                      placeholder="Query matrix..."
+                      placeholder="Search movies, web series, genres..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)} onClick={() => triggerAdOverlay(() => {}, 'search_input', 'input_click')}
                       className="block w-full pl-11 pr-4 py-3 border border-slate-700/50 rounded-full bg-slate-900/60 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:bg-slate-900 backdrop-blur-md transition-all shadow-inner"
@@ -4004,7 +4119,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {isLoadingMovies ? (
+                {isLoadingMovies && movies.length === 0 ? (
                   <div className="mb-12">
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
                       {Array.from({ length: 12 }).map((_, i) => (
@@ -4363,37 +4478,69 @@ export default function App() {
                           <Download className="w-4 h-4 text-red-400" />{" "}
                           Individual Episodes
                         </h5>
-                        <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-3.5">
                           {selectedMovie.episodes &&
                           selectedMovie.episodes.length > 0 ? (
-                            selectedMovie.episodes.map((ep, i) => {
-                              const isViewed = viewedEpisodes[selectedMovie.id]?.includes(String(ep.id));
-                              return (
-                              <div key={ep.id} className="relative group/ep flex items-center gap-2">
-                                <button
-                                  onClick={(e) => toggleEpisodeViewed(selectedMovie.id, String(ep.id), e)}
-                                  className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-lg border transition-all ${isViewed ? 'bg-green-600/20 border-green-500/50 text-green-500 hover:bg-green-600/30' : 'bg-slate-900 border-slate-700 text-slate-500 hover:bg-slate-800'}`}
-                                  title={isViewed ? "Mark as unread" : "Mark as read"}
-                                >
-                                  {isViewed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-                                </button>
-                                <button
-                                  onClick={(e) => { e.preventDefault(); setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id, url: ep.link }); setScreen('mediator'); }}
-                                  className={`flex-1 group relative overflow-hidden bg-slate-900 border ${isViewed ? 'border-slate-700/50 opacity-60' : 'border-red-900/50 hover:border-red-400'} rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.01] hover:opacity-100`}
-                                >
-                                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                  <div className="flex items-center gap-4 relative z-10">
-                                    <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-950/50 text-red-400 font-bold border border-red-900/50">
-                                      {i + 1}
-                                    </span>
-                                    <span className={`font-bold transition-colors text-lg ${isViewed ? 'text-slate-400 line-through' : 'text-slate-200 group-hover:text-white'}`}>
+                            selectedMovie.episodes.map((ep, i) => (
+                              <div
+                                key={ep.id}
+                                className="w-full bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-red-900/60 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.15)] group/ep"
+                              >
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                  <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-red-950/60 text-red-400 font-black border border-red-900/60 text-sm shrink-0">
+                                    {i + 1}
+                                  </span>
+                                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2.5 min-w-0">
+                                    <span className="font-bold text-slate-100 text-base sm:text-lg">
                                       {ep.title}
                                     </span>
+                                    {ep.note && (
+                                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)] w-max tracking-wide">
+                                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                        <span>{ep.note}</span>
+                                      </span>
+                                    )}
                                   </div>
-                                  <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                                </button>
+                                </div>
+
+                                <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+                                  {(ep.watchOnlineUrl || ep.link) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const streamUrl = ep.watchOnlineUrl || ep.link;
+                                        triggerAdOverlay(() => {
+                                          window.open(streamUrl, "_blank");
+                                        }, 'online_ep_' + ep.id, 'movie_click');
+                                      }}
+                                      className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white rounded-xl font-bold text-xs sm:text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer"
+                                      title="Watch Online"
+                                    >
+                                      <Play className="w-3.5 h-3.5 fill-current" />
+                                      <span>Watch Online</span>
+                                    </button>
+                                  )}
+                                  {ep.link && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        triggerAdOverlay(() => {
+                                          setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id, url: ep.link });
+                                          setScreen('mediator');
+                                        }, 'dl_ep_' + ep.id, 'download_click');
+                                      }}
+                                      className="flex items-center gap-1.5 px-3.5 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 hover:border-slate-500 rounded-xl text-xs sm:text-sm font-semibold transition-all shrink-0 cursor-pointer"
+                                      title="Download Episode"
+                                    >
+                                      <Download className="w-3.5 h-3.5 text-red-400" />
+                                      <span className="hidden sm:inline">Download</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            )})
+                            ))
                           ) : (
                             <div className="col-span-full border border-red-900/50 bg-red-950/30 p-4 rounded-xl text-red-400 flex items-center gap-2">
                               <AlertCircle className="w-5 h-5" /> No episodes
@@ -4641,10 +4788,10 @@ export default function App() {
                 href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
                 target="_blank"
                 rel="noreferrer"
-                onClick={() => setShowNotificationPopup(false)}
+                onClick={handleApkDownload}
                 className="w-full px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2"
               >
-                <Download className="w-5 h-5" /> Install App Now
+                <Download className="w-5 h-5" /> Install APK Now
               </a>
             </div>
           </motion.div>
