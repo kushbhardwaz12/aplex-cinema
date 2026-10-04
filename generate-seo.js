@@ -68,7 +68,10 @@ async function run() {
     sitemap += '</urlset>';
     htmlLinks += '    </div>\n  </div>\n</footer>';
 
-    fs.writeFileSync('public/sitemap.xml', sitemap);
+    fs.writeFileSync('sitemap-backup.xml', sitemap);
+    if (fs.existsSync('public/sitemap.xml')) {
+      fs.unlinkSync('public/sitemap.xml');
+    }
     
     // Inject htmlLinks into index.html
     let indexHtml = fs.readFileSync('index.html', 'utf8');

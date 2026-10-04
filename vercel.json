@@ -6,11 +6,19 @@
     },
     {
       "source": "/sitemap.xml",
-      "destination": "/sitemap.xml"
+      "destination": "/api/sitemap.js"
     },
     {
       "source": "/robots.txt",
       "destination": "/robots.txt"
+    },
+    {
+      "source": "/movie/:id/:slug*",
+      "destination": "/api/movie.js?id=:id&slug=:slug*"
+    },
+    {
+      "source": "/movie/:id",
+      "destination": "/api/movie.js?id=:id"
     },
     {
       "source": "/((?!api/|sitemap\\.xml|robots\\.txt|.*\\..*).*)",
@@ -18,4 +26,3 @@
     }
   ]
 }
-

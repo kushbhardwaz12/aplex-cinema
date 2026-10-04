@@ -1024,6 +1024,19 @@ export default function App() {
     if (path.startsWith("/movie/")) {
       const parts = path.split("/");
       const movieId = parts[2];
+
+      // Immediately set self-referencing canonical URL and robots tags for search crawlers
+      const canonicalUrl = `https://aplex-cinema-4us.vercel.app${path}`;
+      let canonicalLink = document.querySelector('link[rel="canonical"]') || document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      canonicalLink.setAttribute('href', canonicalUrl);
+      document.head.appendChild(canonicalLink);
+
+      let robotsMeta = document.querySelector('meta[name="robots"]') || document.createElement('meta');
+      robotsMeta.setAttribute('name', 'robots');
+      robotsMeta.setAttribute('content', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+      document.head.appendChild(robotsMeta);
+
       if (movieId) {
         getDoc(doc(db, "movies", movieId))
           .then((snap) => {
@@ -1180,9 +1193,8 @@ export default function App() {
              if (m) {
                  setSelectedMovie(m);
                  setScreen("movie_detail");
-             } else {
-                 setScreen("public_home");
              }
+             // If not in current array, do NOT redirect to home; direct getDoc will resolve it!
           }
        }
     }
