@@ -28,7 +28,7 @@ export const INITIAL_MOVIES: any[] = [
     "type": "series",
     "image": "https://image.tmdb.org/t/p/w400/r2QZyiHYfhylzT5OWatXCu3kigI.jpg",
     "category": [],
-    "description": "Download Family Full House with Rohit Sharma (Season 1) Hindi WEB-DL 1080p 720p & 480p x264 DD2.0 | Full Series.\nWatch Family Full House with Rohit Sharma Hindi Full Series Online Free on Aplex cinema",
+    "description": "Download Family Full House with Rohit Sharma (Season 1) Hindi WEB-DL 1080p 720p & 480p x264 DD2.0 | Full Series.\nWatch Family Full House with Rohit Sharma Hindi Full Series Online Free on Sigma Flix 4us",
     "isHighlight": false
   },
   {
@@ -40,7 +40,7 @@ export const INITIAL_MOVIES: any[] = [
       "Romance",
       "Comedy"
     ],
-    "description": "\nDownload UNABOMBER (2026) WEB-DL [Hindi (DD5.1) & English] 2160p 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie,\nWatch UNABOMBER Full Movie in Hindi Dubbed Online Free on Aplex cinema 4u",
+    "description": "\nDownload UNABOMBER (2026) WEB-DL [Hindi (DD5.1) & English] 2160p 1080p 720p & 480p Dual Audio [x264/10Bit-HEVC] | Full Movie,\nWatch UNABOMBER Full Movie in Hindi Dubbed Online Free on Sigma Flix 4us",
     "isHighlight": false
   },
   {
@@ -231,7 +231,7 @@ export const INITIAL_MOVIES: any[] = [
     "category": [
       "Action"
     ],
-    "description": "Download A Great Awakening (2026) WEB-DL [Hindi (DD5.1) & English] 1080p 720p & 480p Dual Audio [x264/ESubs] | Full Movie,\nWatch A Great Awakening Full Movie in Hindi Online Free on Aplex cinema 4us !",
+    "description": "Download A Great Awakening (2026) WEB-DL [Hindi (DD5.1) & English] 1080p 720p & 480p Dual Audio [x264/ESubs] | Full Movie,\nWatch A Great Awakening Full Movie in Hindi Online Free on Sigma Flix 4us !",
     "isHighlight": false
   },
   {
@@ -295,7 +295,7 @@ export const INITIAL_MOVIES: any[] = [
       "politics",
       "war"
     ],
-    "description": "Fauda (Season 5) (Full Series)\nRating: 7.378\nGenres: Drama | Action & Adventure | War & Politics\nInfo Source: Aplex cinema 4us-aplex stream69557-fauda\nLanguage: Dual Audio [Hindi (DD5.1) & English] / ",
+    "description": "Fauda (Season 5) (Full Series)\nRating: 7.378\nGenres: Drama | Action & Adventure | War & Politics\nInfo Source: Sigma Flix 4us-stream69557-fauda\nLanguage: Dual Audio [Hindi (DD5.1) & English] / ",
     "isHighlight": false
   },
   {

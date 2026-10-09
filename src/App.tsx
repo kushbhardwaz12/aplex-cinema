@@ -36,7 +36,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Globe } from "lucide-react";
+  Globe,
+  DollarSign,
+  ShieldCheck,
+  Zap,
+  X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   collection,
@@ -55,7 +59,10 @@ import { signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPass
 import { db, auth, googleProvider } from "./firebase";
 import { AdsterraAd } from "./components/AdsterraAd";
 import { MediatorPage } from "./pages/MediatorPage";
+import { AiMovieImporter, ExtractedMovie } from "./components/AiMovieImporter";
 import { INITIAL_MOVIES } from "./data/initialMovies";
+import { adService } from "./services/adService";
+import { InPagePushAd } from "./components/InPagePushAd";
 
 // Image Compression Utility with Web Worker for offloading
 const workerScript = `
@@ -248,19 +255,24 @@ const ImageWithSkeleton = ({
   src: string;
   alt: string;
   className?: string;
-  onClick?: () => void;
+  onClick?: (e?: any) => void;
 }) => {
   const [loaded, setLoaded] = useState(false);
   return (
-    <div className="relative w-full h-full">
+    <div 
+      className="relative w-full h-full cursor-pointer"
+      onClick={onClick}
+      onTouchEnd={onClick}
+    >
       {!loaded && (
-        <div className="absolute inset-0 bg-slate-800 animate-pulse" />
+        <div className="absolute inset-0 bg-slate-800 animate-pulse pointer-events-none" />
       )}
-                            <img
+      <img
         src={src}
         alt={alt}
         onClick={onClick}
-        className={`${className} ${loaded ? "opacity-100" : "opacity-0"} transition-opacity duration-300`}
+        onTouchEnd={onClick}
+        className={`${className} ${loaded ? "opacity-100" : "opacity-0"} transition-opacity duration-300 cursor-pointer`}
         onLoad={() => setLoaded(true)}
       />
     </div>
@@ -369,10 +381,54 @@ export default function App() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
-
-  const DIRECT_LINK = "https://www.profitableratecpmnetwork.com/d192d2ap8?key=b61f2d758f64d7e7b4e6a422be46afd5";
-
   const [adTriggeredKeys, setAdTriggeredKeys] = useState<Set<string>>(new Set());
+  const DIRECT_LINK = adService.getActiveDirectLink();
+
+  // Dynamic Monetag & Adsterra Monetization state
+  const [monetagDirectLink, setMonetagDirectLink] = useState(() => adService.getActiveMonetagLink());
+  const [monetagPopunderEnabled, setMonetagPopunderEnabled] = useState(() => adService.getConfig().monetagPopunderEnabled);
+  const [monetagIntervalSeconds, setMonetagIntervalSeconds] = useState(() => Math.round((adService.getConfig().monetagClickIntervalMs || 8000) / 1000));
+  const [adPrimaryLink, setAdPrimaryLink] = useState(() => adService.getActiveDirectLink());
+  const [adFallbackLink, setAdFallbackLink] = useState(() => adService.getConfig().fallbackDirectLink);
+  const [adsterraApiToken, setAdsterraApiToken] = useState(() => adService.getConfig().adsterraApiToken);
+  const [enableLegitimateCheck, setEnableLegitimateCheck] = useState(() => adService.getConfig().enableLegitimateCheck);
+  const [adSettingsSaved, setAdSettingsSaved] = useState(false);
+  const [apiTesting, setApiTesting] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Sync ad configuration
+  useEffect(() => {
+    const cfg = adService.getConfig();
+    setMonetagDirectLink(cfg.monetagDirectLink || "https://uplcm.com/4/11976643");
+    setMonetagPopunderEnabled(cfg.monetagPopunderEnabled ?? true);
+    setMonetagIntervalSeconds(Math.round((cfg.monetagClickIntervalMs || 8000) / 1000));
+    setAdPrimaryLink(cfg.primaryDirectLink);
+    setAdFallbackLink(cfg.fallbackDirectLink);
+    setAdsterraApiToken(cfg.adsterraApiToken);
+    setEnableLegitimateCheck(cfg.enableLegitimateCheck);
+  }, []);
+
+  const handleSaveAdSettings = async () => {
+    await adService.updateConfig({
+      monetagDirectLink: monetagDirectLink,
+      monetagPopunderEnabled: monetagPopunderEnabled,
+      monetagClickIntervalMs: monetagIntervalSeconds * 1000,
+      primaryDirectLink: adPrimaryLink,
+      fallbackDirectLink: adFallbackLink,
+      adsterraApiToken: adsterraApiToken,
+      enableLegitimateCheck: enableLegitimateCheck,
+    });
+    setAdSettingsSaved(true);
+    setTimeout(() => setAdSettingsSaved(false), 3500);
+  };
+
+  const handleTestAdsterraApi = async () => {
+    setApiTesting(true);
+    setApiTestResult(null);
+    const result = await adService.testAdsterraApi(adsterraApiToken);
+    setApiTestResult(result);
+    setApiTesting(false);
+  };
   const [movieClickCount, setMovieClickCount] = useState(0);
   const [liveStreamClickCount, setLiveStreamClickCount] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -536,18 +592,75 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [isDesktop, screen, isAdminAuth, isStrictlyAdmin]);
 
-  const handleMovieInteraction = () => {
-    // Popunder is now injected on load for Desktop, it will handle clicks natively
+  // Legitimate interaction ad trigger for Movie Poster Photo and Screenshots
+  const handleImageAdClick = (e?: React.MouseEvent | React.TouchEvent, source: 'poster' | 'screenshot' = 'poster') => {
+    if (screen === "admin_dashboard") {
+      return;
+    }
+    adService.triggerLegitimateAd(source, e);
   };
 
-  
+  const handleSearchBoxInteraction = (e?: any) => {
+    if (screen === "admin_dashboard") return;
+    adService.triggerLegitimateAd('search_box', e);
+  };
+
+  const handleMovieInteraction = (e?: React.MouseEvent) => {
+    handleImageAdClick(e, 'poster');
+  };
+
+  const [downloadClickCounts, setDownloadClickCounts] = useState<Record<string, number>>({});
+
+  // Helper for download buttons: 1 click triggers 1 Adsterra ad, 2nd click navigates to mediator page
+  const handleDownloadClick = (
+    url: string | undefined,
+    quality: string,
+    adKey?: string
+  ) => {
+    if (!selectedMovie) return;
+    if (screen === "admin_dashboard") {
+      if (url && !url.startsWith("mediator:")) {
+        const fullUrl = url.startsWith("http") ? url : "https://" + url;
+        window.open(fullUrl, "_blank");
+      } else {
+        setMediatorTarget({ id: selectedMovie.id, quality, url });
+        setScreen("mediator");
+      }
+      return;
+    }
+
+    const isMobile = typeof window !== 'undefined' && (window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    const rawKey = adKey || `dl_${quality}_${selectedMovie.id}`;
+    const deviceKey = isMobile ? `mobile_${rawKey}` : `laptop_${rawKey}`;
+    const currentClicks = downloadClickCounts[deviceKey] || 0;
+
+    // 1st click: Exactly 1 Adsterra ad
+    if (currentClicks < 1) {
+      setDownloadClickCounts(prev => ({ ...prev, [deviceKey]: 1 }));
+      adService.triggerAdsterraDirect(undefined, 'download_button', true);
+      return;
+    }
+
+    // 2nd click: Proceed to mediator page & reset counter
+    setDownloadClickCounts(prev => ({ ...prev, [deviceKey]: 0 }));
+    setMediatorTarget({ id: selectedMovie.id, quality, url });
+    setScreen("mediator");
+  };
+
   // type can be 'movie_click' | 'download_click' | 'live_stream_click' | 'input_click'
   const triggerAdOverlay = (nextAction: () => void, adKey?: string, type: 'movie_click' | 'download_click' | 'live_stream_click' | 'input_click' = 'download_click') => {
     if (screen === "admin_dashboard" || isAdminAuth || isStrictlyAdmin) {
       nextAction();
       return;
     }
+
+    // ON MOBILE / PHONE: REMOVE ALL ADS from link clicks!
+    if (isMobileOrTablet) {
+      nextAction();
+      return;
+    }
     
+    // ON LAPTOP / PC (Desktop):
     // For movie clicks (navigate immediately, but trigger ad in background)
     if (type === 'movie_click') {
       if (movieClickCount < 2) {
@@ -558,7 +671,7 @@ export default function App() {
       return;
     }
     
-    // For live stream clicks (requires 3 total clicks to proceed)
+    // For live stream clicks on PC (requires 3 total clicks to proceed)
     if (type === 'live_stream_click') {
       if (liveStreamClickCount < 2) {
         window.open(DIRECT_LINK, "_blank");
@@ -570,7 +683,7 @@ export default function App() {
       }
     }
 
-    // For input clicks
+    // For input clicks on PC
     if (type === 'input_click') {
       if (adKey && !adTriggeredKeys.has(adKey)) {
         window.open(DIRECT_LINK, "_blank");
@@ -580,7 +693,7 @@ export default function App() {
       return;
     }
     
-    // For download clicks
+    // For download clicks on PC
     if (adKey) {
       if (!adTriggeredKeys.has(adKey)) {
         window.open(DIRECT_LINK, "_blank");
@@ -596,7 +709,7 @@ export default function App() {
   const [isApkDownloaded, setIsApkDownloaded] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return false;
-      const downloaded = localStorage.getItem("aplex_apk_downloaded") === "true";
+      const downloaded = localStorage.getItem("sigmaflix_apk_downloaded") === "true" || localStorage.getItem("aplex_apk_downloaded") === "true";
       const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
       const isWebView = /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
       return downloaded || isStandalone || isWebView;
@@ -607,7 +720,7 @@ export default function App() {
 
   const handleApkDownload = () => {
     try {
-      localStorage.setItem("aplex_apk_downloaded", "true");
+      localStorage.setItem("sigmaflix_apk_downloaded", "true");
       setIsApkDownloaded(true);
       setShowNotificationPopup(false);
     } catch (e) {
@@ -617,16 +730,29 @@ export default function App() {
 
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
 
-  const installPopupShown = useRef(false);
+  const initialNotificationFired = useRef(false);
   useEffect(() => {
-    if (screen === "public_home" && !installPopupShown.current && !isApkDownloaded) {
-      const timer = setTimeout(() => {
+    if (screen === "admin_dashboard") return;
+
+    let timer: NodeJS.Timeout;
+
+    if (!showNotificationPopup) {
+      // First appearance after 2 seconds on visit, then repeats every 10 seconds (10000ms)
+      const delay = initialNotificationFired.current ? 10000 : 2000;
+      initialNotificationFired.current = true;
+
+      timer = setTimeout(() => {
         setShowNotificationPopup(true);
-        installPopupShown.current = true;
-      }, 3000);
-      return () => clearTimeout(timer);
+      }, delay);
+    } else {
+      // Auto-slide down after 8 seconds of display so it can re-trigger 10s later even if user doesn't dismiss it
+      timer = setTimeout(() => {
+        setShowNotificationPopup(false);
+      }, 8000);
     }
-  }, [screen, isApkDownloaded]);
+
+    return () => clearTimeout(timer);
+  }, [showNotificationPopup, screen]);
   
 
 
@@ -746,8 +872,8 @@ export default function App() {
   
 
 
-  // Series Form States
-  const [activeAdminTab, setActiveAdminTab] = useState<"movie" | "series">(
+  // Series & Monetization Form States
+  const [activeAdminTab, setActiveAdminTab] = useState<"movie" | "series" | "monetization">(
     "movie",
   );
   const [seriesTitle, setSeriesTitle] = useState("");
@@ -1057,11 +1183,11 @@ export default function App() {
   // URL and Dynamic SEO updating logic
   useEffect(() => {
     if (screen === "movie_detail" && selectedMovie) {
-      document.title = `${selectedMovie.title} - Download Latest HD | Aplex Cinema`;
+      document.title = `${selectedMovie.title} - Download Latest HD | Sigma Flix 4us`;
       
       const cleanDesc = selectedMovie.description
         ? selectedMovie.description.replace(/\s+/g, " ").trim().substring(0, 160)
-        : `Download and watch ${selectedMovie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Aplex Cinema.`;
+        : `Download and watch ${selectedMovie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Sigma Flix 4us.`;
       
       // Update Meta Description
       let metaDesc = document.querySelector('meta[name="description"]') || document.createElement('meta');
@@ -1080,7 +1206,7 @@ export default function App() {
       // Update OG Title
       let ogTitle = document.querySelector('meta[property="og:title"]') || document.createElement('meta');
       ogTitle.setAttribute('property', 'og:title');
-      ogTitle.setAttribute('content', `${selectedMovie.title} - Aplex Cinema`);
+      ogTitle.setAttribute('content', `${selectedMovie.title} - Sigma Flix 4us`);
       document.head.appendChild(ogTitle);
 
       // Update OG Description
@@ -1104,7 +1230,7 @@ export default function App() {
       // Update Twitter Cards
       let twTitle = document.querySelector('meta[name="twitter:title"]') || document.createElement('meta');
       twTitle.setAttribute('name', 'twitter:title');
-      twTitle.setAttribute('content', `${selectedMovie.title} - Aplex Cinema`);
+      twTitle.setAttribute('content', `${selectedMovie.title} - Sigma Flix 4us`);
       document.head.appendChild(twTitle);
 
       let twDesc = document.querySelector('meta[name="twitter:description"]') || document.createElement('meta');
@@ -1141,7 +1267,7 @@ export default function App() {
          window.history.pushState({ screen: "movie_detail", movieId: selectedMovie.id }, '', newUrl);
       }
     } else if (screen === "public_home") {
-      document.title = "Aplex Cinema - Download Latest HD Movies & Web Series";
+      document.title = "Sigma Flix 4us - Download Latest HD Movies & Web Series";
       
       let canonicalLink = document.querySelector('link[rel="canonical"]') || document.createElement('link');
       canonicalLink.setAttribute('rel', 'canonical');
@@ -1258,11 +1384,15 @@ export default function App() {
     }
   };
 
+  // Laptop / Tablet Back-to-Back Monetag Popunder counter
+  const [movieClickAdCounts, setMovieClickAdCounts] = useState<Record<string, number>>({});
+
   const handleMovieClick = (e: React.MouseEvent<any>, movie: any) => {
     e.preventDefault();
     e.stopPropagation();
     
     const isMobile = window.innerWidth <= 768;
+    const isLaptopOrTablet = window.innerWidth >= 600;
     const slug = generateCleanSlug(movie.title);
     const newUrl = `/movie/${movie.id}/${slug}`;
     
@@ -1274,29 +1404,62 @@ export default function App() {
       return;
     }
 
-    // Open 1 ad only for the first time someone clicks on a movie
-    if (!adTriggeredKeys.has(movie.id)) {
-      window.open(DIRECT_LINK, "_blank");
-      setAdTriggeredKeys(prev => {
-        const newSet = new Set(prev);
-        newSet.add(movie.id);
-        return newSet;
-      });
+    // Popunder on Laptop or Tablet: on clicking any movie link, Monetag popunder triggers 2 times back-to-back
+    // 1st click -> Monetag popunder 1
+    // 2nd click (dubara link par click karne par) -> Monetag popunder 2 back-to-back
+    // 3rd click -> opens movie detail screen
+    const currentClicks = movieClickAdCounts[movie.id] || 0;
+    if (isLaptopOrTablet && currentClicks < 2) {
+      const nextClicks = currentClicks + 1;
+      setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: nextClicks }));
+      adService.triggerBackToBackMonetagPopunder(e, nextClicks);
+      return;
     }
 
-    if (isMobile) {
-      window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
-      setSelectedMovie(movie);
-      setScreen("movie_detail");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } else {
-      // Instead of opening in a new tab, navigate in the same tab so popups don't get blocked
-      // when ad is already opening in a new tab.
-      window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
-      setSelectedMovie(movie);
-      setScreen("movie_detail");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    // Reset counter for future visits
+    if (isLaptopOrTablet) {
+      setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 0 }));
     }
+
+    window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
+    setSelectedMovie(movie);
+    setScreen("movie_detail");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Series Episode Links Monetag 1-Ad Click Tracking (Mobile & Laptop separate handling)
+  const [episodeClickCounts, setEpisodeClickCounts] = useState<Record<string, number>>({});
+
+  const handleEpisodeAction = (
+    e: React.MouseEvent,
+    rawUrl: string | undefined,
+    actionKey: string
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!rawUrl) return;
+    const cleanUrl = rawUrl.trim().startsWith("http") ? rawUrl.trim() : "https://" + rawUrl.trim();
+
+    if (screen === "admin_dashboard") {
+      window.open(cleanUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const isMobile = typeof window !== 'undefined' && (window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    const deviceKey = isMobile ? `mobile_${actionKey}` : `laptop_${actionKey}`;
+    const currentClicks = episodeClickCounts[deviceKey] || 0;
+
+    // 1st click: Exactly 1 Monetag ad (Mobile opens in mobile tab, Laptop opens in desktop tab/popunder)
+    if (currentClicks < 1) {
+      setEpisodeClickCounts(prev => ({ ...prev, [deviceKey]: 1 }));
+      adService.triggerMonetagDirect(e, isMobile ? 'series_episode_mobile' : 'series_episode_laptop', isMobile);
+      return;
+    }
+
+    // 2nd click: Open destination link & reset counter
+    setEpisodeClickCounts(prev => ({ ...prev, [deviceKey]: 0 }));
+    window.open(cleanUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleAutoDetectMovieSizes = async () => {
@@ -1401,7 +1564,6 @@ export default function App() {
     try {
       if (isRegistering) {
         await createUserWithEmailAndPassword(auth, email, password);
-        setShowNotificationPopup(true);
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
@@ -1420,11 +1582,7 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
-      if (isNewUser) {
-        setShowNotificationPopup(true);
-      }
+      await signInWithPopup(auth, googleProvider);
       setScreen("public_home");
     } catch (error: any) {
       if (error.code === "auth/cancelled-popup-request" || error.code === "auth/popup-closed-by-user") {
@@ -1948,6 +2106,101 @@ export default function App() {
     }
   };
 
+  const handleAiApplyToForm = (movie: ExtractedMovie) => {
+    setActiveAdminTab(movie.isSeries ? "series" : "movie");
+    setMovieTitle(movie.title || "");
+    setMovieDesc(movie.description || "");
+    setMovieImage(movie.image || null);
+    if (movie.categories && movie.categories.length > 0) {
+      setMovieCategory(movie.categories);
+    }
+    setMovieScreenshots(movie.screenshots || []);
+
+    const l480 = movie.links?.find(l => /480|sd|620/i.test(l.quality));
+    const l720 = movie.links?.find(l => /720/i.test(l.quality));
+    const l1080 = movie.links?.find(l => /1080/i.test(l.quality));
+    const l4k = movie.links?.find(l => /4k|2160/i.test(l.quality));
+
+    if (l480) {
+      setLink620p(l480.url);
+      if (l480.size) setSize620p(l480.size);
+    }
+    if (l720) {
+      setLink720p(l720.url);
+      if (l720.size) setSize720p(l720.size);
+    }
+    if (l1080) {
+      setLink1080p(l1080.url);
+      if (l1080.size) setSize1080p(l1080.size);
+    }
+    if (l4k) {
+      setLink4k(l4k.url);
+      if (l4k.size) setSize4k(l4k.size);
+    }
+
+    if (movie.streamingUrl) {
+      setLiveStreamLink(movie.streamingUrl);
+      setIsLiveStream(true);
+    }
+  };
+
+  const handleAiInstantUpload = async (movie: ExtractedMovie) => {
+    const docRef = doc(collection(db, "movies"));
+    const docId = docRef.id;
+
+    const l480 = movie.links?.find(l => /480|sd|620/i.test(l.quality));
+    const l720 = movie.links?.find(l => /720/i.test(l.quality));
+    const l1080 = movie.links?.find(l => /1080/i.test(l.quality));
+    const l4k = movie.links?.find(l => /4k|2160/i.test(l.quality));
+
+    const final480 = l480?.url || movie.links?.[0]?.url || "";
+    const final720 = l720?.url || movie.links?.[1]?.url || "";
+    const final1080 = l1080?.url || movie.links?.[2]?.url || "";
+    const final4k = l4k?.url || "";
+
+    if (final480) safeSetLocalStorage(`movieUrl_620p_${docId}`, final480);
+    if (final720) safeSetLocalStorage(`movieUrl_720p_${docId}`, final720);
+    if (final1080) safeSetLocalStorage(`movieUrl_1080p_${docId}`, final1080);
+
+    const docData: any = {
+      title: movie.title,
+      description: movie.description || `Watch & Download ${movie.title} in HD on Sigma Flix 4us.`,
+      image: movie.image || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
+      category: movie.categories && movie.categories.length > 0 ? movie.categories : ["action"],
+      screenshots: movie.screenshots || [],
+      type: movie.isSeries ? "series" : "movie",
+      link620p: final480,
+      link720p: final720,
+      link1080p: final1080,
+      link720pHevc: "",
+      link1080pHevc: "",
+      link4k: final4k,
+      size620p: l480?.size || "450MB",
+      size720p: l720?.size || "1.2GB",
+      size1080p: l1080?.size || "2.6GB",
+      size720pHevc: "",
+      size1080pHevc: "",
+      size4k: l4k?.size || "",
+      extraLinks: [],
+      ratings: [],
+      createdAt: new Date(),
+      isHighlight: false,
+      isLiveStream: Boolean(movie.streamingUrl),
+      liveStreamLink: movie.streamingUrl || "",
+      trailerUrl: "",
+    };
+
+    await setDoc(docRef, docData);
+    setNewMovieNotice(movie.title);
+    setTimeout(() => setNewMovieNotice(null), 5000);
+  };
+
+  const handleAiInstantBulkUpload = async (moviesToUpload: ExtractedMovie[]) => {
+    for (const movie of moviesToUpload) {
+      await handleAiInstantUpload(movie);
+    }
+  };
+
   const filteredMovies = (movies || []).filter((movie) => {
     if (!movie) return false;
     const matchesSearch =
@@ -1967,9 +2220,16 @@ export default function App() {
     <div className="min-h-screen bg-[#080806] font-sans text-slate-50 selection:bg-red-500/30">
       
       {/* NAVBAR */}
-      <nav className="bg-[#080806]/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
+      <nav className="bg-[#080806]/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div 
+            className="flex items-center justify-between h-16"
+            onClick={(e) => {
+              if (screen !== "admin_dashboard") {
+                adService.triggerMonetagPopunder(e, 'navbar');
+              }
+            }}
+          >
                         <div
               className="flex items-center gap-3 group cursor-pointer"
               onClick={() => setScreen("public_home")}
@@ -1989,14 +2249,18 @@ export default function App() {
                 )}
                 <div
                   id="text-logo"
-                  className="flex items-center text-xl sm:text-2xl font-black tracking-tighter text-white drop-shadow-md hover:scale-105 transition-transform"
+                  className="flex items-center text-xl sm:text-2xl font-black tracking-tight select-none hover:scale-105 transition-transform"
                 >
-                  APLEX <span className="text-red-600 ml-1.5 mr-2">CINEMA</span>
-                  <span className="bg-gradient-to-r from-red-600 to-red-500 text-white text-xs px-2 py-1 rounded-md italic shadow-lg shadow-red-500/20 tracking-wider hidden sm:inline-block">4US</span>
+                  <span className="bg-gradient-to-r from-white via-slate-100 to-red-400 bg-clip-text text-transparent font-black tracking-wide drop-shadow-[0_2px_10px_rgba(239,68,68,0.3)]">
+                    SIGMA<span className="text-red-500 font-black"> FLIX</span>
+                  </span>
+                  <span className="bg-gradient-to-r from-red-600 to-red-500 text-white text-xs font-black px-2 py-0.5 rounded-md italic shadow-lg shadow-red-500/25 tracking-wider ml-2 border border-red-500/30">
+                    4US
+                  </span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <button
                 onClick={() => setScreen("my_library")}
                 className="flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-red-400 transition-colors px-3 py-2 rounded-md hover:bg-slate-800"
@@ -2004,7 +2268,23 @@ export default function App() {
                 <Bookmark className="w-4 h-4" />
                 <span className="hidden sm:inline">My Library</span>
               </button>
-              {currentUserEmail ? (
+
+              {/* Get APK Button - on the extreme right of My Library */}
+              {screen !== "login" && screen !== "pin_check" && (
+                <a
+                  href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={handleApkDownload}
+                  className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
+                  title="Download Sigma Flix 4us APK"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Get APK</span>
+                </a>
+              )}
+
+              {currentUserEmail && (
                 <div className="flex items-center gap-3">
                   {isAdminAuth && (
                     <button
@@ -2026,25 +2306,6 @@ export default function App() {
                     <span className="hidden sm:inline">Logout</span>
                   </button>
                 </div>
-              ) : (
-                screen !== "login" &&
-                screen !== "pin_check" &&
-                !isApkDownloaded && (
-                  <div className="flex items-center gap-2">
-                    <a
-                      href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={handleApkDownload}
-                      className="flex items-center gap-1.5 text-[11px] font-semibold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3 py-1 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide"
-                      title="Install APK"
-                    >
-                      <Download className="w-3 h-3" />
-                      Install APK
-                    </a>
-                    {/* Login button removed as requested */}
-                  </div>
-                )
               )}
             </div>
           </div>
@@ -2320,7 +2581,7 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      {movies.length} Pages in Sitemap
+                      Homepage Only in Sitemap
                     </span>
                   </div>
                 </div>
@@ -2336,7 +2597,7 @@ export default function App() {
                     >
                       <span>https://aplex-cinema-4us.vercel.app/sitemap.xml</span>
                     </a>
-                    <p className="text-xs text-slate-500 mt-1">Submit this URL in Search Console &gt; Sitemaps.</p>
+                    <p className="text-xs text-slate-500 mt-1">Sitemap contains only the main homepage (all movie links removed from indexing).</p>
                   </div>
 
                   <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
@@ -2384,8 +2645,17 @@ export default function App() {
                 </div>
               </div>
 
+
+
+              {/* AI Auto-Importer Bot */}
+              <AiMovieImporter
+                onApplyToForm={handleAiApplyToForm}
+                onInstantUpload={handleAiInstantUpload}
+                onInstantBulkUpload={handleAiInstantBulkUpload}
+              />
+
               {/* Upload Form */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-12">
+              <div id="admin-movie-form" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-12">
                 <div
                   className="absolute top-0 left-0 w-max h-max bg-red-500/5 blur-[100px] rounded-full pointer-events-none"
                   style={{ width: "400px", height: "400px" }}
@@ -2410,6 +2680,13 @@ export default function App() {
                       className={`px-4 py-2 text-sm font-medium transition-colors ${activeAdminTab === "series" ? "bg-red-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
                     >
                       Web Series
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab("monetization")}
+                      className={`px-4 py-2 text-sm font-medium transition-colors ${activeAdminTab === "monetization" ? "bg-red-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
+                    >
+                      💰 Monetization
                     </button>
                   </div>
                 </div>
@@ -2999,7 +3276,7 @@ export default function App() {
                     </div>
                   </div>
                 </form>
-                ) : (
+                ) : activeAdminTab === "series" ? (
                   <form
                     onSubmit={handleAddSeries}
                     className="space-y-6 relative z-10"
@@ -3658,6 +3935,233 @@ export default function App() {
                       </div>
                     </div>
                   </form>
+                ) : (
+                  /* MONETIZATION SETTINGS (MONETAG + ADSTERRA) */
+                  <div className="space-y-6 relative z-10">
+                    <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 space-y-6">
+                      
+                      {/* Monetag Section */}
+                      <div className="border border-blue-900/40 bg-gradient-to-br from-blue-950/30 to-slate-900/60 rounded-xl p-5 shadow-lg">
+                        <div className="flex items-center justify-between mb-4 border-b border-blue-900/40 pb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl">⚡</span>
+                            <div>
+                              <h4 className="font-bold text-white text-base sm:text-lg flex items-center gap-2">
+                                Monetag Ad Network (SmartLink & Popunder)
+                              </h4>
+                              <p className="text-xs text-blue-300/80">
+                                Active on Navbar, Top Highlight, and Categories Bar
+                              </p>
+                            </div>
+                          </div>
+                          <span className="bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                            Monetag Active
+                          </span>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                              Monetag Direct Link / SmartLink:
+                            </label>
+                            <input
+                              type="url"
+                              value={monetagDirectLink}
+                              onChange={(e) => setMonetagDirectLink(e.target.value)}
+                              placeholder="https://uplcm.com/4/11976643"
+                              className="w-full bg-[#0a0a0a] border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
+                            />
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              Current active direct link: <span className="text-blue-400 font-mono">https://uplcm.com/4/11976643</span>
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div className="flex items-center gap-3 bg-slate-900/80 border border-slate-800 p-3 rounded-lg">
+                              <input
+                                id="monetagPopunderToggle"
+                                type="checkbox"
+                                checked={monetagPopunderEnabled}
+                                onChange={(e) => setMonetagPopunderEnabled(e.target.checked)}
+                                className="w-4 h-4 rounded border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0 bg-slate-950 cursor-pointer"
+                              />
+                              <label htmlFor="monetagPopunderToggle" className="text-xs text-slate-200 font-medium cursor-pointer">
+                                Enable Monetag Popunder Triggers
+                              </label>
+                            </div>
+
+                            <div className="flex items-center gap-3 bg-slate-900/80 border border-slate-800 p-3 rounded-lg">
+                              <label className="text-xs text-slate-300 font-medium whitespace-nowrap">
+                                Trigger Interval:
+                              </label>
+                              <input
+                                type="number"
+                                min="2"
+                                max="60"
+                                value={monetagIntervalSeconds}
+                                onChange={(e) => setMonetagIntervalSeconds(Number(e.target.value))}
+                                className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono text-center"
+                              />
+                              <span className="text-xs text-slate-400">seconds</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 text-xs text-slate-300">
+                            <span className="font-semibold text-white">Monetag Active Locations:</span>
+                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-[11px]">
+                              <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                                🌟 Top Highlight Header
+                              </span>
+                              <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                                🧭 Navigation Bar Container
+                              </span>
+                              <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                                🏷️ Category Filter Bar & Buttons
+                              </span>
+                              <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                                🖱️ Main Page Empty Space (SmartLink)
+                              </span>
+                              <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                                💻 Laptop/Tablet Movie Links (2x Back-to-Back)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                adService.triggerMonetagPopunder(undefined, 'admin_test');
+                              }}
+                              className="px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                            >
+                              <span>🚀</span> Test Monetag Popunder Link
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Adsterra Section */}
+                      <div className="border border-red-900/40 bg-gradient-to-br from-red-950/20 to-slate-900/60 rounded-xl p-5 shadow-lg">
+                        <div className="flex items-center justify-between mb-4 border-b border-red-900/40 pb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl">🎯</span>
+                            <div>
+                              <h4 className="font-bold text-white text-base sm:text-lg flex items-center gap-2">
+                                Adsterra Ad Network (Smart Link & Push Notifications)
+                              </h4>
+                              <p className="text-xs text-red-300/80">
+                                Active on Mediator page, Poster/Screenshots, and Main Page Push Notifications
+                              </p>
+                            </div>
+                          </div>
+                          <span className="bg-red-600/30 text-red-300 border border-red-500/40 text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                            Adsterra Active
+                          </span>
+                        </div>
+
+                        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 text-xs text-slate-300 mb-4">
+                          <span className="font-semibold text-white">Adsterra Active Locations:</span>
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px]">
+                            <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                              🖼️ Movie Poster & Screenshots
+                            </span>
+                            <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                              🚀 Mediator Page & GET LINK
+                            </span>
+                            <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                              🔔 In-Page Push Notifications
+                            </span>
+                            <span className="bg-slate-800/80 px-2.5 py-1.5 rounded text-slate-300 border border-slate-700/50">
+                              🔍 Search Box & Desktop Popunder
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                              Primary Adsterra Direct Link:
+                            </label>
+                            <input
+                              type="url"
+                              value={adPrimaryLink}
+                              onChange={(e) => setAdPrimaryLink(e.target.value)}
+                              placeholder="https://www.profitablecpmrate.com/..."
+                              className="w-full bg-[#0a0a0a] border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:border-red-500 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                              Fallback Direct Link:
+                            </label>
+                            <input
+                              type="url"
+                              value={adFallbackLink}
+                              onChange={(e) => setAdFallbackLink(e.target.value)}
+                              placeholder="https://www.profitablecpmrate.com/..."
+                              className="w-full bg-[#0a0a0a] border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:border-red-500 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                              Adsterra API Token (Optional):
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={adsterraApiToken}
+                                onChange={(e) => setAdsterraApiToken(e.target.value)}
+                                placeholder="Paste API token from Adsterra Publisher panel"
+                                className="flex-1 bg-[#0a0a0a] border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:border-red-500 focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleTestAdsterraApi}
+                                disabled={apiTesting || !adsterraApiToken}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold border border-slate-700 disabled:opacity-50"
+                              >
+                                {apiTesting ? "Testing..." : "Test Token"}
+                              </button>
+                            </div>
+                            {apiTestResult && (
+                              <p className={`text-xs mt-2 ${apiTestResult.success ? "text-emerald-400" : "text-amber-400"}`}>
+                                {apiTestResult.message}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Anti-collision & Protection Notice */}
+                      <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-xl p-4 flex items-start gap-3 text-xs text-emerald-200">
+                        <span className="text-base">🛡️</span>
+                        <div>
+                          <strong className="text-white block mb-0.5">Dual-Network Protection Active:</strong>
+                          Adsterra and Monetag run completely separated. Monetag triggers strictly on your designated divs (Navbar, Top Highlight, Categories), and Adsterra triggers strictly on download stream clicks. A mutual cooldown window ensures no popup collisions.
+                        </div>
+                      </div>
+
+                      {/* Save Button */}
+                      <div className="flex items-center gap-4 pt-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveAdSettings}
+                          className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold rounded-xl shadow-lg transition-all flex items-center gap-2 text-sm"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> Save Monetization Settings
+                        </button>
+                        {adSettingsSaved && (
+                          <span className="text-emerald-400 text-xs font-semibold flex items-center gap-1.5 animate-pulse">
+                            ✓ Settings saved & synced to all visitors!
+                          </span>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -3836,14 +4340,25 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="w-full"
+              className="w-full cursor-default"
+              onClick={(e) => {
+                if (screen !== "public_home") return;
+                const target = e.target as HTMLElement;
+                // If clicked on an interactive element (button, link, input, etc.), let that element handle it
+                if (target.closest("button, a, input, textarea, select, [role='button']")) {
+                  return;
+                }
+                // Monetag SmartLink activates when clicking anywhere on empty space of main movies page
+                adService.triggerMonetagSmartLink(e, 'home_empty_space');
+              }}
             >
               {/* Highlights Slider Edge Style */}
               {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
                 <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-2 relative">
                   <h2 
                     className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 cursor-pointer select-none w-fit relative z-10"
-                    onClick={() => {
+                    onClick={(e) => {
+                      adService.triggerMonetagPopunder(e, 'top_highlight_h2');
                       setStarClicks(prev => {
                         if (prev + 1 >= 3) {
                           setShowAdminLoginForm(true);
@@ -4074,17 +4589,20 @@ export default function App() {
                   })()}
                 </div>
               )}
-{/* WELCOME BANNER */}
-              <div className="bg-[#1a0505] border border-red-900/40 py-2.5 px-4 z-40 relative shadow-inner mb-6 mx-4 sm:mx-6 lg:mx-8 rounded-lg flex items-center justify-center">
-                <div className="text-red-200/90 text-[11px] sm:text-[13px] md:text-sm font-medium tracking-wide whitespace-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] text-center w-full">
-                  <span className="mr-1">🎬</span> Welcome to <strong className="text-red-400 font-bold mx-1">Aplex Cinema 4US</strong> — Free HD Movies, Web Series & Dual Audio Direct Downloads
-                </div>
-              </div>
+
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
                 <div className="w-full overflow-x-auto pb-4 mb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                  <div className="flex gap-2">
+                  <div 
+                    className="flex gap-2"
+                    onClick={(e) => {
+                      adService.triggerMonetagPopunder(e, 'category_bar');
+                    }}
+                  >
                     <button
-                      onClick={() => setSelectedCategory("All")}
+                      onClick={(e) => {
+                        adService.triggerMonetagPopunder(e, 'category_all');
+                        setSelectedCategory("All");
+                      }}
                       className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-all ${
                         selectedCategory === "All"
                           ? "bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
@@ -4096,7 +4614,10 @@ export default function App() {
                     {CATEGORIES.map((category) => (
                       <button
                         key={category}
-                        onClick={() => setSelectedCategory(category)}
+                        onClick={(e) => {
+                          adService.triggerMonetagPopunder(e, `category_${category}`);
+                          setSelectedCategory(category);
+                        }}
                         className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-all ${
                           selectedCategory === category
                             ? "bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
@@ -4117,7 +4638,7 @@ export default function App() {
                     <p className="text-slate-400 text-sm mt-1 font-medium">Total {movies.length > 0 ? movies.length : '190+'} titles available</p>
                   </div>
 
-                  <div className="relative w-full md:w-96">
+                  <div className="relative w-full md:w-96" onClick={handleSearchBoxInteraction}>
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                       <Search className="h-5 w-5 text-red-500/50" />
                     </div>
@@ -4125,7 +4646,9 @@ export default function App() {
                       type="text"
                       placeholder="Search movies, web series, genres..."
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)} onClick={() => triggerAdOverlay(() => {}, 'search_input', 'input_click')}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onClick={handleSearchBoxInteraction}
+                      onFocus={handleSearchBoxInteraction}
                       className="block w-full pl-11 pr-4 py-3 border border-slate-700/50 rounded-full bg-slate-900/60 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:bg-slate-900 backdrop-blur-md transition-all shadow-inner"
                     />
                   </div>
@@ -4180,6 +4703,10 @@ export default function App() {
                                   onClick={(e) => {
                                      e.stopPropagation();
                                      e.preventDefault();
+                                     if (isMobileOrTablet) {
+                                       window.open(item.liveStreamLink, "_blank");
+                                       return;
+                                     }
                                      if (liveStreamClickCount < 2) {
                                        window.open(DIRECT_LINK, "_blank");
                                        setLiveStreamClickCount(prev => prev + 1);
@@ -4211,6 +4738,9 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* In-Page Push Ad Notification for Movies (Adsterra) */}
+              <InPagePushAd isVisible={screen === "public_home" && !isStrictlyAdmin && !isAdminAuth} />
             </motion.div>
           )}
 
@@ -4221,6 +4751,15 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                // If user clicked inside an active button, link or input, let it handle its own logic
+                if (target.closest('button') || target.closest('a') || target.closest('input')) {
+                  return;
+                }
+                // Clicks anywhere else on divs/text/headers inside movie page trigger Adsterra ad
+                adService.triggerAdsterraDirect(e, 'movie_page_empty_div', false);
+              }}
               className="w-full max-w-[1600px] mx-auto px-4 py-8 sm:px-6 lg:px-12"
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -4238,11 +4777,22 @@ export default function App() {
                     animate={{ opacity: 1, x: 0 }}
                     className="w-full md:w-1/3 lg:w-[350px] shrink-0"
                   >
-                    <div className="aspect-[2/3] bg-slate-900 rounded-2xl overflow-hidden border border-slate-700 shadow-[0_0_30px_rgba(0,0,0,0.5)] relative group">
-                      <button onClick={(e) => toggleBookmark(selectedMovie.id, e)} className={`absolute top-4 right-4 z-30 p-3 rounded-full backdrop-blur-sm transition-all shadow-lg ${bookmarks.includes(selectedMovie.id) ? "bg-red-600/90 text-white" : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"}`}>
+                    <div 
+                      onClick={(e) => handleImageAdClick(e, 'poster')}
+                      onTouchEnd={(e) => handleImageAdClick(e, 'poster')}
+                      className="aspect-[2/3] bg-slate-900 rounded-2xl overflow-hidden border border-slate-700 shadow-[0_0_30px_rgba(0,0,0,0.5)] hover:border-red-500/80 hover:shadow-[0_0_30px_rgba(239,68,68,0.35)] active:scale-[0.98] transition-all relative group cursor-pointer"
+                      title="Click photo to view"
+                    >
+                      <button onClick={(e) => { e.stopPropagation(); toggleBookmark(selectedMovie.id, e); }} className={`absolute top-4 right-4 z-30 p-3 rounded-full backdrop-blur-sm transition-all shadow-lg ${bookmarks.includes(selectedMovie.id) ? "bg-red-600/90 text-white" : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"}`}>
                         <Bookmark className={`w-5 h-5 ${bookmarks.includes(selectedMovie.id) ? "fill-current" : ""}`} />
                       </button>
-                            <img src={selectedMovie.image} alt={selectedMovie.title} className="w-full h-full object-cover mb-4" />
+                      <img 
+                        src={selectedMovie.image} 
+                        alt={selectedMovie.title} 
+                        onClick={(e) => handleImageAdClick(e, 'poster')}
+                        onTouchEnd={(e) => handleImageAdClick(e, 'poster')}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer pointer-events-auto" 
+                      />
                       <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/10 transition-colors pointer-events-none" />
                     </div>
                   </motion.div>
@@ -4267,6 +4817,9 @@ export default function App() {
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => {
+                             if (isMobileOrTablet) {
+                               return; // Direct link opening on mobile with 0 ads
+                             }
                              if (liveStreamClickCount < 2) {
                                e.preventDefault();
                                window.open(DIRECT_LINK, "_blank");
@@ -4310,9 +4863,10 @@ export default function App() {
                             return (
                               <button
                                 key={star}
-                                onClick={() =>
-                                  handleRateMovie(selectedMovie.id, star)
-                                }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRateMovie(selectedMovie.id, star);
+                                }}
                                 className="hover:scale-125 transition-transform focus:outline-none"
                                 title={`Rate ${star} stars`}
                               >
@@ -4365,13 +4919,16 @@ export default function App() {
                         {selectedMovie.screenshots.map((img, i) => (
                           <div
                             key={i}
-                            className="aspect-video bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow-lg hover:border-red-500/50 hover:shadow-[0_0_25px_rgba(239,68,68,0.2)] transition-all"
+                            onClick={(e) => handleImageAdClick(e, 'screenshot')}
+                            onTouchEnd={(e) => handleImageAdClick(e, 'screenshot')}
+                            className="aspect-video bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow-lg hover:border-red-500/80 hover:shadow-[0_0_25px_rgba(239,68,68,0.3)] active:scale-[0.98] transition-all cursor-pointer relative group"
+                            title="Click screenshot"
                           >
                             <ImageWithSkeleton
                               src={img}
                               alt={`Screenshot ${i + 1}`}
-                              className="w-full h-full object-cover cursor-pointer"
-                              onClick={handleMovieInteraction}
+                              onClick={(e) => handleImageAdClick(e, 'screenshot')}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer pointer-events-auto"
                             />
                           </div>
                         ))}
@@ -4405,7 +4962,7 @@ export default function App() {
                           </h5>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {selectedMovie.link620p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '620p', url: selectedMovie.link620p }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link620p, '620p', 'dl_620p_' + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4416,7 +4973,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link720p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '720p', url: selectedMovie.link720p }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720p, '720p', 'dl_720p_' + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-blue-900/50 hover:border-blue-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4427,7 +4984,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link1080p && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '1080p', url: selectedMovie.link1080p }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080p, '1080p', 'dl_1080p_' + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4438,7 +4995,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link720pHevc && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '720p HEVC', url: selectedMovie.link720pHevc }); setScreen('mediator'); }, 'dl_720phevc_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720pHevc, '720p HEVC', 'dl_720phevc_' + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-green-900/50 hover:border-green-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-green-500/0 via-green-500/10 to-green-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4449,7 +5006,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link1080pHevc && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '1080p HEVC', url: selectedMovie.link1080pHevc }); setScreen('mediator'); }, 'dl_1080phevc_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080pHevc, '1080p HEVC', 'dl_1080phevc_' + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-teal-900/50 hover:border-teal-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(20,184,166,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-teal-500/0 via-teal-500/10 to-teal-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4460,7 +5017,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.link4k && (
-                              <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '4K', url: selectedMovie.link4k }); setScreen('mediator'); }, 'dl_4k_' + selectedMovie.id, 'download_click'); }}
+                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link4k, '4K', 'dl_4k_' + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-yellow-900/50 hover:border-yellow-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(234,179,8,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/0 via-yellow-500/10 to-yellow-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4471,7 +5028,7 @@ export default function App() {
                               </button>
                             )}
                             {selectedMovie.extraLinks && selectedMovie.extraLinks.map((link, idx) => (
-                              <button key={idx} onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: link.name, url: link.url }); setScreen('mediator'); }, `dl_custom_${idx}_` + selectedMovie.id, 'download_click'); }}
+                              <button key={idx} onClick={(e) => { e.preventDefault(); handleDownloadClick(link.url, link.name, `dl_custom_${idx}_` + selectedMovie.id); }}
                                 className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
                               >
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4518,16 +5075,13 @@ export default function App() {
                                 <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
                                   {(ep.watchOnlineUrl || ep.link) && (
                                     <button
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        const streamUrl = ep.watchOnlineUrl || ep.link;
-                                        triggerAdOverlay(() => {
-                                          window.open(streamUrl, "_blank");
-                                        }, 'online_ep_' + ep.id, 'movie_click');
-                                      }}
+                                      onClick={(e) => handleEpisodeAction(e, ep.watchOnlineUrl || ep.link, `watch_${ep.id}`)}
                                       className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white rounded-xl font-bold text-xs sm:text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer"
-                                      title="Watch Online"
+                                       title={
+                                        (!isMobileOrTablet && window.innerWidth > 768 && (episodeClickCounts[`laptop_watch_${ep.id}`] || episodeClickCounts[`watch_${ep.id}`] || 0) === 0)
+                                          ? "Watch Online (Click to unlock link)"
+                                          : "Watch Online"
+                                      }
                                     >
                                       <Play className="w-3.5 h-3.5 fill-current" />
                                       <span>Watch Online</span>
@@ -4535,16 +5089,13 @@ export default function App() {
                                   )}
                                   {ep.link && (
                                     <button
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        triggerAdOverlay(() => {
-                                          setMediatorTarget({ id: selectedMovie.id, quality: 'episode_' + ep.id, url: ep.link });
-                                          setScreen('mediator');
-                                        }, 'dl_ep_' + ep.id, 'download_click');
-                                      }}
+                                      onClick={(e) => handleEpisodeAction(e, ep.link, `dl_${ep.id}`)}
                                       className="flex items-center gap-1.5 px-3.5 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 hover:border-slate-500 rounded-xl text-xs sm:text-sm font-semibold transition-all shrink-0 cursor-pointer"
-                                      title="Download Episode"
+                                      title={
+                                        (!isMobileOrTablet && window.innerWidth > 768 && (episodeClickCounts[`laptop_dl_${ep.id}`] || episodeClickCounts[`dl_${ep.id}`] || 0) === 0)
+                                          ? "Download Episode (Click to unlock link)"
+                                          : "Download Episode"
+                                      }
                                     >
                                       <Download className="w-3.5 h-3.5 text-red-400" />
                                       <span className="hidden sm:inline">Download</span>
@@ -4565,7 +5116,7 @@ export default function App() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {selectedMovie.link620p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '620p', url: selectedMovie.link620p }); setScreen('mediator'); }, 'dl_620p_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link620p, '620p', 'dl_620p_' + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4576,7 +5127,7 @@ export default function App() {
                         </button>
                       )}
                       {selectedMovie.link720p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '720p', url: selectedMovie.link720p }); setScreen('mediator'); }, 'dl_720p_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720p, '720p', 'dl_720p_' + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(59,130,246,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-600/0 via-red-600/10 to-red-600/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4587,7 +5138,7 @@ export default function App() {
                         </button>
                       )}
                       {selectedMovie.link1080p && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '1080p', url: selectedMovie.link1080p }); setScreen('mediator'); }, 'dl_1080p_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080p, '1080p', 'dl_1080p_' + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(168,85,247,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4598,7 +5149,7 @@ export default function App() {
                         </button>
                       )}
                       {selectedMovie.link720pHevc && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '720p HEVC', url: selectedMovie.link720pHevc }); setScreen('mediator'); }, 'dl_720phevc_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720pHevc, '720p HEVC', 'dl_720phevc_' + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-green-900/50 hover:border-green-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(34,197,94,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-green-500/0 via-green-500/10 to-green-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4609,7 +5160,7 @@ export default function App() {
                         </button>
                       )}
                       {selectedMovie.link1080pHevc && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '1080p HEVC', url: selectedMovie.link1080pHevc }); setScreen('mediator'); }, 'dl_1080phevc_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080pHevc, '1080p HEVC', 'dl_1080phevc_' + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-teal-900/50 hover:border-teal-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(20,184,166,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-teal-500/0 via-teal-500/10 to-teal-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4620,7 +5171,7 @@ export default function App() {
                         </button>
                       )}
                       {selectedMovie.link4k && (
-                        <button onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: '4K', url: selectedMovie.link4k }); setScreen('mediator'); }, 'dl_4k_' + selectedMovie.id, 'download_click'); }}
+                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link4k, '4K', 'dl_4k_' + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-yellow-900/50 hover:border-yellow-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(234,179,8,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/0 via-yellow-500/10 to-yellow-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4631,7 +5182,7 @@ export default function App() {
                         </button>
                       )}
                       {selectedMovie.extraLinks && selectedMovie.extraLinks.map((link, idx) => (
-                        <button key={idx} onClick={(e) => { e.preventDefault(); triggerAdOverlay(() => { setMediatorTarget({ id: selectedMovie.id, quality: link.name, url: link.url }); setScreen('mediator'); }, `dl_custom_${idx}_` + selectedMovie.id, 'download_click'); }}
+                        <button key={idx} onClick={(e) => { e.preventDefault(); handleDownloadClick(link.url, link.name, `dl_custom_${idx}_` + selectedMovie.id); }}
                           className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
@@ -4688,6 +5239,8 @@ export default function App() {
                     </div>
                   </motion.div>
                 )}
+
+
 
                 {/* COMMENTS SECTION */}
                 <motion.div
@@ -4775,38 +5328,73 @@ export default function App() {
 
 
 
-      {/* Notification Popup */}
+      {/* APK Push Notification - Sliding smoothly up from bottom (No screen blur, No center modal) */}
       <AnimatePresence>
         {showNotificationPopup && (
-          <motion.div
-            initial={{ opacity: 0, y: 100 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 100 }}
-            className="fixed bottom-0 left-0 right-0 z-50 p-4 flex justify-center pointer-events-none"
-          >
-            <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-red-900/20 text-center relative overflow-hidden pointer-events-auto">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500/0 via-red-500 to-red-500/0 opacity-50" />
-              <button onClick={() => setShowNotificationPopup(false)} className="absolute top-3 right-3 text-slate-500 hover:text-white transition-colors">✕</button>
-              
-              <div className="mx-auto w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-4 text-red-400">
-                <Download className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-2">Install Aplex Cinema 4US</h3>
-              <p className="text-sm text-slate-400 mb-6">
-                For the best streaming experience, download our official Android app!
-              </p>
-              
-              <a
-                href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
-                target="_blank"
-                rel="noreferrer"
-                onClick={handleApkDownload}
-                className="w-full px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2"
+          <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
+            {/* Notification Card Sliding from Bottom */}
+            <motion.div
+              id="apk-notification-popup"
+              initial={{ opacity: 0, y: "100%" }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 260 }}
+              className="pointer-events-auto relative z-10 w-full sm:max-w-md apk-popup-slide-up"
+            >
+              <div
+                onClick={(e) => {
+                  adService.triggerMonetagPopunder(e, 'push_notification_card', true);
+                }}
+                className="relative w-full bg-[#151518]/95 sm:bg-[#151518] border-t sm:border border-zinc-700/80 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-[0_-12px_45px_rgba(0,0,0,0.85)] text-center overflow-hidden cursor-pointer"
               >
-                <Download className="w-5 h-5" /> Install APK Now
-              </a>
-            </div>
-          </motion.div>
+                {/* Close Button (X) */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    adService.triggerMonetagPopunder(e, 'push_notification_close', true);
+                    setShowNotificationPopup(false);
+                  }}
+                  className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white bg-zinc-800/80 hover:bg-zinc-700 rounded-full transition-colors cursor-pointer"
+                  title="Close notification"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                {/* App Icon */}
+                <div className="mx-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-lg shadow-red-600/30 border border-red-500/30 mb-3 sm:mb-3.5">
+                  <Download className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
+                </div>
+
+                {/* Title */}
+                <h3 className="text-lg sm:text-xl font-bold text-white tracking-wide">
+                  Install Sigma Flix 4US
+                </h3>
+
+                {/* Subtitle */}
+                <p className="text-xs sm:text-sm text-zinc-400 mt-1.5 mb-5 max-w-xs mx-auto leading-relaxed">
+                  For the best streaming experience, download our official Android app.
+                </p>
+
+                {/* Install Button */}
+                <a
+                  href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    adService.triggerMonetagPopunder(e, 'push_notification_install', true);
+                    handleApkDownload();
+                    setShowNotificationPopup(false);
+                  }}
+                  className="w-full bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold text-base py-3 px-6 rounded-xl shadow-lg shadow-red-600/40 transition-all flex items-center justify-center gap-2 cursor-pointer hover:shadow-red-600/60"
+                >
+                  <Download className="w-5 h-5" />
+                  <span>Install APK</span>
+                </a>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

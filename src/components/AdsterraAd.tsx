@@ -10,7 +10,7 @@ export function AdsterraAd({ type, isMobile }: AdsterraAdProps) {
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    if (type === 'popunder' && !isMobile) {
+    if (type === 'popunder') {
       const script = document.createElement('script');
       script.type = 'text/javascript';
       script.src = '//pl30254578.effectivecpmnetwork.com/36/2f/19/362f19d7e45340004eef28e597400864.js';

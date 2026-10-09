@@ -55,3 +55,23 @@
   left: 55%;
   animation-delay: 0.8s;
 }
+
+/* Custom CSS for smooth upward slide-in of APK notification popup */
+@keyframes slideUpFromBottom {
+  0% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+#apk-notification-popup.apk-popup-slide-up,
+.apk-popup-slide-up {
+  animation: slideUpFromBottom 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+

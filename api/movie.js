@@ -65,10 +65,10 @@ export default async function handler(req, res) {
 
     const movie = { id: snap.id, ...snap.data() };
     const movieSlug = slug || generateCleanSlug(movie.title);
-    const pageTitle = `${movie.title} - Download Latest HD | Aplex Cinema`;
+    const pageTitle = `${movie.title} - Download Latest HD | Sigma-flix 4US`;
     const cleanDesc = movie.description
       ? movie.description.replace(/\s+/g, " ").trim().substring(0, 160)
-      : `Download and stream ${movie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Aplex Cinema.`;
+      : `Download and stream ${movie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Sigma-flix 4US.`;
     const canonicalUrl = `https://aplex-cinema-4us.vercel.app/movie/${movie.id}/${movieSlug}`;
     const poster = movie.image || "https://aplex-cinema-4us.vercel.app/aplex_logo.png";
     const category = movie.category || "Movie";

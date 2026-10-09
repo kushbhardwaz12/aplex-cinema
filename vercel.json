@@ -9,6 +9,14 @@
       "destination": "/api/sitemap.js"
     },
     {
+      "source": "/sw.js",
+      "destination": "/api/sw.js"
+    },
+    {
+      "source": "/service-worker.js",
+      "destination": "/api/sw.js"
+    },
+    {
       "source": "/robots.txt",
       "destination": "/robots.txt"
     },

@@ -23,6 +23,23 @@
         "read": "true",
         "write": "true"
       }
+    },
+    {
+      "name": "site_settings",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "primaryDirectLink": { "type": "string" },
+          "fallbackDirectLink": { "type": "string" },
+          "adsterraApiToken": { "type": "string" },
+          "enableLegitimateCheck": { "type": "boolean" },
+          "verificationCode": { "type": "string" }
+        }
+      },
+      "securityRules": {
+        "read": "true",
+        "write": "true"
+      }
     }
   ]
 }
