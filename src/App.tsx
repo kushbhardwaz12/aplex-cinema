@@ -40,6 +40,7 @@ import {
   DollarSign,
   ShieldCheck,
   Zap,
+  SkipForward,
   X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -439,26 +440,48 @@ export default function App() {
   );
   const [gscSaved, setGscSaved] = useState(false);
 
+  const sanitizeGscToken = (input: string): string => {
+    if (!input) return "";
+    let clean = input.trim();
+    // If user pasted full tag like <meta name="google-site-verification" content="..." />
+    const match = clean.match(/content=["']([^"']+)["']/i);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    // Remove any html wrapper or quotes
+    clean = clean.replace(/<[^>]*>/g, "").replace(/["']/g, "").trim();
+    return clean;
+  };
+
   // Sync Google verification code from Firestore & update meta tag
   useEffect(() => {
     const fetchSeoSettings = async () => {
       try {
         const snap = await getDoc(doc(db, "site_settings", "seo"));
         if (snap.exists() && snap.data()?.verificationCode) {
-          const code = snap.data().verificationCode;
+          const rawCode = snap.data().verificationCode;
+          const code = sanitizeGscToken(rawCode);
           setGscVerificationCode(code);
           localStorage.setItem("gsc_verification_code", code);
-          const metaTag = document.querySelector('meta[name="google-site-verification"]');
-          if (metaTag) {
-            metaTag.setAttribute("content", code);
+          let metaTag = document.querySelector('meta[name="google-site-verification"]');
+          if (!metaTag) {
+            metaTag = document.createElement("meta");
+            metaTag.setAttribute("name", "google-site-verification");
+            document.head.appendChild(metaTag);
           }
+          metaTag.setAttribute("content", code);
         } else {
           const localCode = localStorage.getItem("gsc_verification_code");
           if (localCode) {
-            const metaTag = document.querySelector('meta[name="google-site-verification"]');
-            if (metaTag) {
-              metaTag.setAttribute("content", localCode);
+            const clean = sanitizeGscToken(localCode);
+            setGscVerificationCode(clean);
+            let metaTag = document.querySelector('meta[name="google-site-verification"]');
+            if (!metaTag) {
+              metaTag = document.createElement("meta");
+              metaTag.setAttribute("name", "google-site-verification");
+              document.head.appendChild(metaTag);
             }
+            metaTag.setAttribute("content", clean);
           }
         }
       } catch (e) {
@@ -469,22 +492,30 @@ export default function App() {
   }, []);
 
   const handleSaveGscCode = async () => {
+    const sanitized = sanitizeGscToken(gscVerificationCode);
+    setGscVerificationCode(sanitized);
     try {
-      await setDoc(doc(db, "site_settings", "seo"), { verificationCode: gscVerificationCode }, { merge: true });
-      localStorage.setItem("gsc_verification_code", gscVerificationCode);
-      const metaTag = document.querySelector('meta[name="google-site-verification"]');
-      if (metaTag) {
-        metaTag.setAttribute("content", gscVerificationCode);
+      await setDoc(doc(db, "site_settings", "seo"), { verificationCode: sanitized }, { merge: true });
+      localStorage.setItem("gsc_verification_code", sanitized);
+      let metaTag = document.querySelector('meta[name="google-site-verification"]');
+      if (!metaTag) {
+        metaTag = document.createElement("meta");
+        metaTag.setAttribute("name", "google-site-verification");
+        document.head.appendChild(metaTag);
       }
+      metaTag.setAttribute("content", sanitized);
       setGscSaved(true);
       setTimeout(() => setGscSaved(false), 3500);
     } catch (err) {
       console.error("Error saving GSC code to Firestore:", err);
-      localStorage.setItem("gsc_verification_code", gscVerificationCode);
-      const metaTag = document.querySelector('meta[name="google-site-verification"]');
-      if (metaTag) {
-        metaTag.setAttribute("content", gscVerificationCode);
+      localStorage.setItem("gsc_verification_code", sanitized);
+      let metaTag = document.querySelector('meta[name="google-site-verification"]');
+      if (!metaTag) {
+        metaTag = document.createElement("meta");
+        metaTag.setAttribute("name", "google-site-verification");
+        document.head.appendChild(metaTag);
       }
+      metaTag.setAttribute("content", sanitized);
       setGscSaved(true);
       setTimeout(() => setGscSaved(false), 3500);
     }
@@ -500,6 +531,18 @@ export default function App() {
   // --- AD NETWORK SETUP ---
   const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isDesktop = !isMobileOrTablet;
+
+  // Check if running inside installed APK environment (standalone PWA or Android APK WebView wrapper)
+  const [isApkInstalled] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined") return false;
+      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
+      const isWebView = /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent) || /SigmaFlix|Aplex/i.test(navigator.userAgent);
+      return isStandalone || isWebView;
+    } catch {
+      return false;
+    }
+  });
   
   // Instantly block ads for admin using synchronous localStorage check
   const isStrictlyAdmin = typeof window !== 'undefined' && localStorage.getItem("isAdmin") === "true";
@@ -602,11 +645,84 @@ export default function App() {
 
   const handleSearchBoxInteraction = (e?: any) => {
     if (screen === "admin_dashboard") return;
+    // Remove ads on mobile as requested: "mobile maine serch se aur get apk popup se ad hata do"
+    if (isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768)) return;
     adService.triggerLegitimateAd('search_box', e);
   };
 
   const handleMovieInteraction = (e?: React.MouseEvent) => {
     handleImageAdClick(e, 'poster');
+  };
+
+  // Active Mobile / APK Ad State (Exclusively for Mobile & APK as requested)
+  const [mobileAdTab, setMobileAdTab] = useState<{
+    network: 'Adsterra' | 'Monetag';
+    source: string;
+    timestamp: number;
+    url?: string;
+  } | null>(null);
+  const [mobileAdSkipReady, setMobileAdSkipReady] = useState(false);
+  const [pendingAdAction, setPendingAdAction] = useState<(() => void) | null>(null);
+  const [skipNoticeToast, setSkipNoticeToast] = useState<string | null>(null);
+
+  // Subscribe to adService trigger events ONLY on Mobile / APK
+  useEffect(() => {
+    const unsubscribe = adService.onAdTriggered((event) => {
+      if (screen === "admin_dashboard") return;
+      const isMobile = isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768) || isApkInstalled;
+      // On Desktop: ads work normally as before, no in-app ad viewer or skip tab
+      if (!isMobile) return;
+
+      setMobileAdTab(event);
+      setMobileAdSkipReady(false);
+    });
+    return () => unsubscribe();
+  }, [screen, isMobileOrTablet, isApkInstalled]);
+
+  // Give 1.5 seconds for ad page to come fully onto screen, then show "Ad Skip" button
+  useEffect(() => {
+    if (!mobileAdTab) return;
+    const timer = setTimeout(() => {
+      setMobileAdSkipReady(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [mobileAdTab]);
+
+  // Auto-dismiss after 15 seconds if untouched
+  useEffect(() => {
+    if (!mobileAdTab) return;
+    const timer = setTimeout(() => {
+      setMobileAdTab(null);
+      setMobileAdSkipReady(false);
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [mobileAdTab]);
+
+  const handleSkipAd = () => {
+    // 1. Close opened ad tab in browser/webview
+    adService.closeOpenedAdWindow();
+
+    // 2. Cut and clean all ad elements / iframes / overlays from DOM
+    adService.cutAndCleanAllAds();
+
+    // 3. Close the in-app mobile ad tab view
+    setMobileAdTab(null);
+    setMobileAdSkipReady(false);
+
+    // 4. Execute pending action if any was queued (e.g. movie download or episode link)
+    if (pendingAdAction) {
+      try {
+        pendingAdAction();
+      } catch (err) {
+        console.error("Error executing pending ad action on skip:", err);
+      }
+      setPendingAdAction(null);
+    }
+
+    setSkipNoticeToast("⚡ Ad cut successfully! Continuing to content...");
+    setTimeout(() => {
+      setSkipNoticeToast(null);
+    }, 2800);
   };
 
   const [downloadClickCounts, setDownloadClickCounts] = useState<Record<string, number>>({});
@@ -637,6 +753,11 @@ export default function App() {
     // 1st click: Exactly 1 Adsterra ad
     if (currentClicks < 1) {
       setDownloadClickCounts(prev => ({ ...prev, [deviceKey]: 1 }));
+      setPendingAdAction(() => () => {
+        setDownloadClickCounts(prev => ({ ...prev, [deviceKey]: 0 }));
+        setMediatorTarget({ id: selectedMovie.id, quality, url });
+        setScreen("mediator");
+      });
       adService.triggerAdsterraDirect(undefined, 'download_button', true);
       return;
     }
@@ -706,13 +827,11 @@ export default function App() {
     nextAction();
   };
 
+  // Track if APK was downloaded in this session or marked so notification popup doesn't keep re-triggering
   const [isApkDownloaded, setIsApkDownloaded] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return false;
-      const downloaded = localStorage.getItem("sigmaflix_apk_downloaded") === "true" || localStorage.getItem("aplex_apk_downloaded") === "true";
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
-      const isWebView = /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent);
-      return downloaded || isStandalone || isWebView;
+      return sessionStorage.getItem("sigmaflix_apk_downloaded") === "true";
     } catch {
       return false;
     }
@@ -720,7 +839,7 @@ export default function App() {
 
   const handleApkDownload = () => {
     try {
-      localStorage.setItem("sigmaflix_apk_downloaded", "true");
+      sessionStorage.setItem("sigmaflix_apk_downloaded", "true");
       setIsApkDownloaded(true);
       setShowNotificationPopup(false);
     } catch (e) {
@@ -732,27 +851,33 @@ export default function App() {
 
   const initialNotificationFired = useRef(false);
   useEffect(() => {
-    if (screen === "admin_dashboard") return;
+    if (screen === "admin_dashboard" || isApkInstalled) {
+      setShowNotificationPopup(false);
+      return;
+    }
+  }, [screen, isApkInstalled]);
 
-    let timer: NodeJS.Timeout;
+  useEffect(() => {
+    // If inside installed APK, popup is disabled
+    if (isApkInstalled) return;
 
-    if (!showNotificationPopup) {
-      // First appearance after 2 seconds on visit, then repeats every 10 seconds (10000ms)
-      const delay = initialNotificationFired.current ? 10000 : 2000;
-      initialNotificationFired.current = true;
-
-      timer = setTimeout(() => {
-        setShowNotificationPopup(true);
-      }, delay);
-    } else {
-      // Auto-slide down after 8 seconds of display so it can re-trigger 10s later even if user doesn't dismiss it
-      timer = setTimeout(() => {
-        setShowNotificationPopup(false);
-      }, 8000);
+    // Jabtak aage wala cut na karde tab tak nahi jana chiye (stays visible until manually closed)
+    if (showNotificationPopup) {
+      return;
     }
 
+    // Har 10 second me popup aana chahiye (10s delay after closing, first load after 2s)
+    const delay = initialNotificationFired.current ? 10000 : 2000;
+    initialNotificationFired.current = true;
+
+    const timer = setTimeout(() => {
+      if (!isApkInstalled) {
+        setShowNotificationPopup(true);
+      }
+    }, delay);
+
     return () => clearTimeout(timer);
-  }, [showNotificationPopup, screen]);
+  }, [showNotificationPopup, isApkInstalled]);
   
 
 
@@ -1453,6 +1578,10 @@ export default function App() {
     // 1st click: Exactly 1 Monetag ad (Mobile opens in mobile tab, Laptop opens in desktop tab/popunder)
     if (currentClicks < 1) {
       setEpisodeClickCounts(prev => ({ ...prev, [deviceKey]: 1 }));
+      setPendingAdAction(() => () => {
+        setEpisodeClickCounts(prev => ({ ...prev, [deviceKey]: 0 }));
+        window.open(cleanUrl, "_blank", "noopener,noreferrer");
+      });
       adService.triggerMonetagDirect(e, isMobile ? 'series_episode_mobile' : 'series_episode_laptop', isMobile);
       return;
     }
@@ -2269,8 +2398,8 @@ export default function App() {
                 <span className="hidden sm:inline">My Library</span>
               </button>
 
-              {/* Get APK Button - on the extreme right of My Library */}
-              {screen !== "login" && screen !== "pin_check" && (
+              {/* Get APK Button - stays visible in navbar; only hidden when running inside the installed APK */}
+              {screen !== "login" && screen !== "pin_check" && !isApkInstalled && (
                 <a
                   href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
                   target="_blank"
@@ -4358,7 +4487,7 @@ export default function App() {
                   <h2 
                     className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 cursor-pointer select-none w-fit relative z-10"
                     onClick={(e) => {
-                      adService.triggerMonetagPopunder(e, 'top_highlight_h2');
+                      e.stopPropagation();
                       setStarClicks(prev => {
                         if (prev + 1 >= 3) {
                           setShowAdminLoginForm(true);
@@ -4638,7 +4767,7 @@ export default function App() {
                     <p className="text-slate-400 text-sm mt-1 font-medium">Total {movies.length > 0 ? movies.length : '190+'} titles available</p>
                   </div>
 
-                  <div className="relative w-full md:w-96" onClick={handleSearchBoxInteraction}>
+                  <div className="relative w-full md:w-96" onClick={isMobileOrTablet ? undefined : handleSearchBoxInteraction}>
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                       <Search className="h-5 w-5 text-red-500/50" />
                     </div>
@@ -4647,8 +4776,8 @@ export default function App() {
                       placeholder="Search movies, web series, genres..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      onClick={handleSearchBoxInteraction}
-                      onFocus={handleSearchBoxInteraction}
+                      onClick={isMobileOrTablet ? undefined : handleSearchBoxInteraction}
+                      onFocus={isMobileOrTablet ? undefined : handleSearchBoxInteraction}
                       className="block w-full pl-11 pr-4 py-3 border border-slate-700/50 rounded-full bg-slate-900/60 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:bg-slate-900 backdrop-blur-md transition-all shadow-inner"
                     />
                   </div>
@@ -5328,9 +5457,126 @@ export default function App() {
 
 
 
+      {/* Mobile / APK In-App Ad Tab Viewer with small 'Ad Skip' Option (Exclusively for Mobile & APK) */}
+      <AnimatePresence>
+        {mobileAdTab && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[9999999] bg-[#09090b] flex flex-col select-none"
+          >
+            {/* Top Compact Header with 'Ad Skip' option */}
+            <div className="h-12 bg-zinc-950 border-b border-zinc-800 px-3 flex items-center justify-between text-white shrink-0 z-20 shadow-lg">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/30 shrink-0">
+                  {mobileAdTab.network} Ad
+                </span>
+                <span className="text-xs text-zinc-300 font-semibold truncate hidden sm:inline">
+                  Sigma Flix 4us
+                </span>
+              </div>
+
+              {/* User requested: Chota sa ad skip ka option */}
+              <div className="flex items-center gap-2 shrink-0">
+                {mobileAdSkipReady ? (
+                  <button
+                    type="button"
+                    onClick={handleSkipAd}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white font-black text-xs rounded-full shadow-[0_0_15px_rgba(239,68,68,0.7)] border border-white/20 active:scale-95 animate-pulse cursor-pointer"
+                    title="Cut ad tab and continue immediately"
+                  >
+                    <SkipForward className="w-3.5 h-3.5" />
+                    <span>Ad Skip ✕</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 bg-zinc-800/90 px-2.5 py-1 rounded-full border border-zinc-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                    <span>Ad Loading...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Ad Page Frame / Viewport */}
+            <div className="flex-1 relative w-full h-full bg-[#050507] overflow-hidden">
+              {/* Fallback & Return Card */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-white z-0">
+                <div className="w-14 h-14 rounded-2xl bg-red-600/20 border border-red-500/40 flex items-center justify-center mb-3">
+                  <Sparkles className="w-7 h-7 text-amber-400 animate-spin" />
+                </div>
+                <h3 className="text-base font-bold text-white mb-1.5">
+                  {mobileAdTab.network} Ad Active
+                </h3>
+                <p className="text-xs text-zinc-400 max-w-xs mb-4">
+                  Ad page loaded. Tap "Ad Skip ✕" above or below to cut this ad tab and return directly to your movie content.
+                </p>
+                {mobileAdSkipReady && (
+                  <button
+                    type="button"
+                    onClick={handleSkipAd}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-red-600/40 cursor-pointer"
+                  >
+                    <SkipForward className="w-4 h-4" />
+                    <span>Cut Ad Tab & Return to Movie ✕</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Active Ad Iframe */}
+              {mobileAdTab.url && (
+                <iframe
+                  src={mobileAdTab.url}
+                  className="relative z-10 w-full h-full border-0 bg-white"
+                  title="Advertisement Tab"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Small 'Ad Skip ✕' Button on Mobile Viewport */}
+      <AnimatePresence>
+        {mobileAdTab && mobileAdSkipReady && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, scale: 0.8, y: -10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: -10 }}
+            onClick={handleSkipAd}
+            className="fixed top-3 right-3 z-[99999999] flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 via-red-500 to-amber-500 text-white font-black text-xs rounded-full shadow-[0_0_18px_rgba(239,68,68,0.85)] border border-white/30 active:scale-95 animate-pulse cursor-pointer"
+            title="Cut ad tab and continue"
+          >
+            <SkipForward className="w-3.5 h-3.5" />
+            <span>Ad Skip ✕</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* AI Ad Skip Feedback Toast */}
+      <AnimatePresence>
+        {skipNoticeToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -30, scale: 0.95 }}
+            className="fixed top-4 inset-x-0 z-[999999] flex justify-center px-4 pointer-events-none"
+          >
+            <div className="bg-emerald-950/95 border border-emerald-500/80 text-emerald-200 text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-full shadow-[0_0_25px_rgba(16,185,129,0.4)] flex items-center gap-2 backdrop-blur-md">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <span>{skipNoticeToast}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* APK Push Notification - Sliding smoothly up from bottom (No screen blur, No center modal) */}
       <AnimatePresence>
-        {showNotificationPopup && (
+        {showNotificationPopup && !isApkInstalled && (
           <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
             {/* Notification Card Sliding from Bottom */}
             <motion.div
@@ -5338,21 +5584,28 @@ export default function App() {
               initial={{ opacity: 0, y: "100%" }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 260 }}
-              className="pointer-events-auto relative z-10 w-full sm:max-w-md apk-popup-slide-up"
+              className="pointer-events-auto relative z-10 w-full sm:max-w-md"
             >
-              <div
+              <div 
+                className="relative w-full bg-[#151518]/95 sm:bg-[#151518] border-t sm:border border-zinc-700/80 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-[0_-12px_45px_rgba(0,0,0,0.85)] text-center overflow-hidden cursor-default sm:cursor-pointer"
                 onClick={(e) => {
-                  adService.triggerMonetagPopunder(e, 'push_notification_card', true);
+                  const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
+                  // On Desktop: trigger Monetag ad as requested ("ye div par desktop ke monetag ki ad laga do, mobile ke liye rehne dena")
+                  if (!isMobile) {
+                    adService.triggerMonetagDirect(e, 'desktop_apk_notification_card', false);
+                  }
                 }}
-                className="relative w-full bg-[#151518]/95 sm:bg-[#151518] border-t sm:border border-zinc-700/80 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-[0_-12px_45px_rgba(0,0,0,0.85)] text-center overflow-hidden cursor-pointer"
               >
-                {/* Close Button (X) */}
+                {/* Close Button (X) - Triggers Monetag ad on desktop when cut, clean on mobile */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    adService.triggerMonetagPopunder(e, 'push_notification_close', true);
+                    const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
+                    // On Desktop: "iss div ko cut karne par ye div par dekstop ke liye ad laga do mobile k liye rehne dena"
+                    if (!isMobile) {
+                      adService.triggerMonetagDirect(e, 'desktop_apk_notification_cut_btn', false);
+                    }
                     setShowNotificationPopup(false);
                   }}
                   className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white bg-zinc-800/80 hover:bg-zinc-700 rounded-full transition-colors cursor-pointer"
@@ -5376,14 +5629,16 @@ export default function App() {
                   For the best streaming experience, download our official Android app.
                 </p>
 
-                {/* Install Button */}
+                {/* Install Button - Direct download, desktop triggers ad, mobile stays ad-free */}
                 <a
                   href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
                   target="_blank"
                   rel="noreferrer"
                   onClick={(e) => {
-                    e.stopPropagation();
-                    adService.triggerMonetagPopunder(e, 'push_notification_install', true);
+                    const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
+                    if (!isMobile) {
+                      adService.triggerMonetagDirect(e, 'desktop_apk_install_btn', false);
+                    }
                     handleApkDownload();
                     setShowNotificationPopup(false);
                   }}

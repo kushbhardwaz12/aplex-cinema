@@ -87,6 +87,15 @@ export default async function handler(req, res) {
     // 1. Replace Title
     html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(pageTitle)}</title>`);
 
+    // Dynamic Google Site Verification Token injection
+    try {
+      const seoSnap = await getDoc(doc(db, "site_settings", "seo"));
+      if (seoSnap.exists() && seoSnap.data()?.verificationCode) {
+        const vCode = seoSnap.data().verificationCode;
+        html = html.replace(/<meta\s+name="google-site-verification"[^>]*>/i, `<meta name="google-site-verification" content="${escapeHtml(vCode)}" />`);
+      }
+    } catch (e) {}
+
     // 2. Self-referencing Canonical URL
     if (html.includes('<link rel="canonical"')) {
       html = html.replace(/<link\s+rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalUrl}" />`);

@@ -24,10 +24,21 @@ const DEFAULT_CONFIG: AdConfig = {
   minClickIntervalMs: 1200,
 };
 
+export interface AdTriggerEvent {
+  network: 'Adsterra' | 'Monetag';
+  source: string;
+  timestamp: number;
+  url?: string;
+  windowRef?: Window | null;
+  isMobile?: boolean;
+}
+
 class AdService {
   private config: AdConfig = { ...DEFAULT_CONFIG };
   private lastTriggerTime: number = 0;
   private lastMonetagTriggerTime: number = 0;
+  private lastOpenedAdWindow: Window | null = null;
+  private adListeners: Set<(event: AdTriggerEvent) => void> = new Set();
   private clickStats = {
     posterClicks: 0,
     screenshotClicks: 0,
@@ -40,6 +51,105 @@ class AdService {
     totalBlockedUntrusted: 0,
   };
   private isInitialized = false;
+
+  public onAdTriggered(listener: (event: AdTriggerEvent) => void): () => void {
+    this.adListeners.add(listener);
+    return () => {
+      this.adListeners.delete(listener);
+    };
+  }
+
+  public closeOpenedAdWindow(): boolean {
+    if (this.lastOpenedAdWindow && !this.lastOpenedAdWindow.closed) {
+      try {
+        this.lastOpenedAdWindow.close();
+        this.lastOpenedAdWindow = null;
+        return true;
+      } catch (err) {
+        console.warn("Could not close ad window:", err);
+      }
+    }
+    return false;
+  }
+
+  public getLastOpenedAdWindow(): Window | null {
+    return this.lastOpenedAdWindow;
+  }
+
+  public notifyAdTriggered(
+    network: 'Adsterra' | 'Monetag',
+    source: string,
+    url?: string,
+    windowRef?: Window | null,
+    isMobile?: boolean
+  ): void {
+    const event: AdTriggerEvent = { network, source, timestamp: Date.now(), url, windowRef, isMobile };
+    this.adListeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (e) {
+        console.error("AdService listener error:", e);
+      }
+    });
+  }
+
+  /**
+   * Cuts and cleans all injected ad iframes, popunder overlays, and cancels active ad states.
+   * Gives users a reliable in-app AI skip button that removes ads.
+   */
+  public cutAndCleanAllAds(): void {
+    if (typeof document === "undefined") return;
+
+    try {
+      // Close any opened mobile ad tab window immediately
+      this.closeOpenedAdWindow();
+
+      // 1. Remove all ad iframes
+      document.querySelectorAll('iframe').forEach((el) => {
+        const src = (el.src || '').toLowerCase();
+        const id = (el.id || '').toLowerCase();
+        const cls = (el.className || '').toString().toLowerCase();
+        if (
+          src.includes('profitablerate') ||
+          src.includes('highperformanceformat') ||
+          src.includes('alwingulla') ||
+          src.includes('monetag') ||
+          src.includes('adsterra') ||
+          src.includes('popunder') ||
+          id.includes('adsterra') ||
+          id.includes('monetag') ||
+          cls.includes('ad-') ||
+          cls.includes('adsterra') ||
+          cls.includes('monetag')
+        ) {
+          el.remove();
+        }
+      });
+
+      // 2. Remove third-party ad overlays or social bars
+      document.querySelectorAll('div, ins').forEach((el) => {
+        const id = (el.id || '').toLowerCase();
+        const cls = typeof el.className === 'string' ? el.className.toLowerCase() : '';
+        if (
+          id.includes('adsterra') ||
+          id.includes('monetag') ||
+          id.includes('socialbar') ||
+          cls.includes('social-bar') ||
+          cls.includes('monetag') ||
+          cls.includes('adsterra') ||
+          (el.tagName === 'INS' && cls.includes('adsby'))
+        ) {
+          el.remove();
+        }
+      });
+    } catch (err) {
+      console.warn("AdService: cleanup notice:", err);
+    }
+
+    // Reset ad timers so user doesn't get re-bombarded
+    this.lastTriggerTime = Date.now();
+    this.lastMonetagTriggerTime = Date.now();
+  }
 
   constructor() {
     this.init();
@@ -168,16 +278,22 @@ class AdService {
     else if (source === 'push_notification') this.clickStats.pushNotificationClicks++;
 
     const directLink = this.getActiveDirectLink();
+    const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
 
     try {
-      // Direct high-priority window open for authentic user gestures
-      const newWin = window.open(directLink, "_blank", "noopener,noreferrer");
+      // On mobile/APK, open without 'noopener' so we retain the window reference to cut/close it
+      const newWin = isMobile ? window.open(directLink, "_blank") : window.open(directLink, "_blank", "noopener,noreferrer");
+      if (newWin) {
+        this.lastOpenedAdWindow = newWin;
+      }
+      this.notifyAdTriggered('Adsterra', source, directLink, newWin, isMobile);
+
       if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
         // Fallback for browsers with strict pop-up constraints
         const a = document.createElement("a");
         a.href = directLink;
         a.target = "_blank";
-        a.rel = "noopener noreferrer";
+        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -189,7 +305,7 @@ class AdService {
         const a = document.createElement("a");
         a.href = directLink;
         a.target = "_blank";
-        a.rel = "noopener noreferrer";
+        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -222,14 +338,20 @@ class AdService {
     }
 
     const directLink = this.getActiveDirectLink();
+    const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
 
     try {
-      const newWin = window.open(directLink, "_blank", "noopener,noreferrer");
+      const newWin = isMobile ? window.open(directLink, "_blank") : window.open(directLink, "_blank", "noopener,noreferrer");
+      if (newWin) {
+        this.lastOpenedAdWindow = newWin;
+      }
+      this.notifyAdTriggered('Adsterra', source, directLink, newWin, isMobile);
+
       if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
         const a = document.createElement("a");
         a.href = directLink;
         a.target = "_blank";
-        a.rel = "noopener noreferrer";
+        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -241,7 +363,7 @@ class AdService {
         const a = document.createElement("a");
         a.href = directLink;
         a.target = "_blank";
-        a.rel = "noopener noreferrer";
+        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -277,13 +399,17 @@ class AdService {
 
     try {
       if (isMobile) {
-        // Mobile device: opens clean new tab with Monetag link
+        // Mobile device: opens clean new tab with Monetag link (without noopener so it can be cut/closed)
         const newWin = window.open(monetagUrl, "_blank");
+        if (newWin) {
+          this.lastOpenedAdWindow = newWin;
+        }
+        this.notifyAdTriggered('Monetag', source, monetagUrl, newWin, true);
         if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
           const a = document.createElement("a");
           a.href = monetagUrl;
           a.target = "_blank";
-          a.rel = "noopener noreferrer";
+          a.rel = "noreferrer";
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -291,6 +417,7 @@ class AdService {
       } else {
         // Laptop / PC Desktop: opens Monetag tab / popunder
         const newWin = window.open(monetagUrl, "_blank", "noopener,noreferrer");
+        this.notifyAdTriggered('Monetag', source, monetagUrl, newWin, false);
         if (newWin) {
           try {
             window.focus();
@@ -312,7 +439,7 @@ class AdService {
         const a = document.createElement("a");
         a.href = monetagUrl;
         a.target = "_blank";
-        a.rel = "noopener noreferrer";
+        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -361,20 +488,25 @@ class AdService {
     this.clickStats.monetagClicks++;
 
     const monetagUrl = this.getActiveMonetagLink();
+    const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
 
     try {
-      // Popunder / background-tab simulation
-      const newWin = window.open(monetagUrl, "_blank", "noopener,noreferrer");
+      const newWin = isMobile ? window.open(monetagUrl, "_blank") : window.open(monetagUrl, "_blank", "noopener,noreferrer");
       if (newWin) {
+        this.lastOpenedAdWindow = newWin;
+      }
+      this.notifyAdTriggered('Monetag', _source, monetagUrl, newWin, isMobile);
+
+      if (newWin && !isMobile) {
         try {
           window.focus();
         } catch {}
-      } else {
+      } else if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
         // Fallback for strict browser pop-up blockers
         const a = document.createElement("a");
         a.href = monetagUrl;
         a.target = "_blank";
-        a.rel = "noopener noreferrer";
+        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         a.remove();

@@ -17,6 +17,10 @@
       "destination": "/api/sw.js"
     },
     {
+      "source": "/google:code.html",
+      "destination": "/api/google-verify.js?code=:code"
+    },
+    {
       "source": "/robots.txt",
       "destination": "/robots.txt"
     },
