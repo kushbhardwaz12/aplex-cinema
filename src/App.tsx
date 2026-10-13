@@ -549,7 +549,8 @@ export default function App() {
 
   // Active ad cleanup effect for Admin Panel
   useEffect(() => {
-    if (isStrictlyAdmin || isAdminAuth || screen === "admin_dashboard") {
+    if (screen === "admin_dashboard") {
+      document.body.classList.add("is-admin-active");
       const purgeAdArtifacts = () => {
         // Remove script tags
         ['social-bar-script', 'popunder-script'].forEach(id => {
@@ -597,14 +598,15 @@ export default function App() {
         clearTimeout(t1);
         clearTimeout(t2);
       };
+    } else {
+      document.body.classList.remove("is-admin-active");
     }
-  }, [isStrictlyAdmin, isAdminAuth, screen]);
+  }, [screen]);
 
   useEffect(() => {
-    if (isStrictlyAdmin || isAdminAuth || screen === "admin_dashboard") return;
+    if (screen === "admin_dashboard") return;
     
     const timer = setTimeout(() => {
-      if (localStorage.getItem("isAdmin") === "true") return;
       const existingScript = document.getElementById('social-bar-script');
       if (isMobileOrTablet && !existingScript) {
         const script = document.createElement('script');
@@ -613,16 +615,15 @@ export default function App() {
         script.async = true;
         document.body.appendChild(script);
       }
-    }, 2000);
+    }, 1000);
     return () => clearTimeout(timer);
-  }, [isMobileOrTablet, screen, isAdminAuth, isStrictlyAdmin]);
+  }, [isMobileOrTablet, screen]);
 
   const [popunderInjected, setPopunderInjected] = useState(false);
   useEffect(() => {
-    if (isStrictlyAdmin || isAdminAuth || screen === "admin_dashboard") return;
+    if (screen === "admin_dashboard") return;
     
     const timer = setTimeout(() => {
-      if (localStorage.getItem("isAdmin") === "true") return;
       const existingScript = document.getElementById('popunder-script');
       if (isDesktop && !existingScript) {
         const script = document.createElement('script');
@@ -631,9 +632,9 @@ export default function App() {
         script.async = true;
         document.body.appendChild(script);
       }
-    }, 2000);
+    }, 1000);
     return () => clearTimeout(timer);
-  }, [isDesktop, screen, isAdminAuth, isStrictlyAdmin]);
+  }, [isDesktop, screen]);
 
   // Legitimate interaction ad trigger for Movie Poster Photo and Screenshots
   const handleImageAdClick = (e?: React.MouseEvent | React.TouchEvent, source: 'poster' | 'screenshot' = 'poster') => {
@@ -662,6 +663,7 @@ export default function App() {
     url?: string;
   } | null>(null);
   const [mobileAdSkipReady, setMobileAdSkipReady] = useState(false);
+  const [skipCountdown, setSkipCountdown] = useState(3);
   const [pendingAdAction, setPendingAdAction] = useState<(() => void) | null>(null);
   const [skipNoticeToast, setSkipNoticeToast] = useState<string | null>(null);
 
@@ -675,17 +677,34 @@ export default function App() {
 
       setMobileAdTab(event);
       setMobileAdSkipReady(false);
+      setSkipCountdown(3);
     });
     return () => unsubscribe();
   }, [screen, isMobileOrTablet, isApkInstalled]);
 
-  // Give 1.5 seconds for ad page to come fully onto screen, then show "Ad Skip" button
+  // Give 2-3 seconds for ad impression to be fully registered/counted, then activate Skip option
   useEffect(() => {
-    if (!mobileAdTab) return;
-    const timer = setTimeout(() => {
-      setMobileAdSkipReady(true);
-    }, 1500);
-    return () => clearTimeout(timer);
+    if (!mobileAdTab) {
+      setMobileAdSkipReady(false);
+      setSkipCountdown(3);
+      return;
+    }
+
+    setMobileAdSkipReady(false);
+    setSkipCountdown(3);
+
+    const interval = setInterval(() => {
+      setSkipCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setMobileAdSkipReady(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
   }, [mobileAdTab]);
 
   // Auto-dismiss after 15 seconds if untouched
@@ -694,6 +713,7 @@ export default function App() {
     const timer = setTimeout(() => {
       setMobileAdTab(null);
       setMobileAdSkipReady(false);
+      setSkipCountdown(3);
     }, 15000);
     return () => clearTimeout(timer);
   }, [mobileAdTab]);
@@ -851,6 +871,7 @@ export default function App() {
 
   const initialNotificationFired = useRef(false);
   useEffect(() => {
+    // Popup should never appear inside Admin Panel or if APK is already installed
     if (screen === "admin_dashboard" || isApkInstalled) {
       setShowNotificationPopup(false);
       return;
@@ -858,8 +879,8 @@ export default function App() {
   }, [screen, isApkInstalled]);
 
   useEffect(() => {
-    // If inside installed APK, popup is disabled
-    if (isApkInstalled) return;
+    // Popup is completely disabled in Admin Panel or if inside installed APK
+    if (screen === "admin_dashboard" || isApkInstalled) return;
 
     // Jabtak aage wala cut na karde tab tak nahi jana chiye (stays visible until manually closed)
     if (showNotificationPopup) {
@@ -877,7 +898,7 @@ export default function App() {
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [showNotificationPopup, isApkInstalled]);
+  }, [showNotificationPopup, isApkInstalled, screen]);
   
 
 
@@ -1245,6 +1266,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [adminSearchQuery, setAdminSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [ratingFilter, setRatingFilter] = useState<number | null>(null); // e.g. 4 for 4+ stars, or null for all
+  const [ratingSort, setRatingSort] = useState<"none" | "highest" | "lowest">("none");
   const [movieCategory, setMovieCategory] = useState<string[]>(["Action"]);
   const [customCategoryInput, setCustomCategoryInput] = useState("");
   const [customSeriesCategoryInput, setCustomSeriesCategoryInput] = useState("");
@@ -1529,22 +1552,25 @@ export default function App() {
       return;
     }
 
-    // Popunder on Laptop or Tablet: on clicking any movie link, Monetag popunder triggers 2 times back-to-back
-    // 1st click -> Monetag popunder 1
-    // 2nd click (dubara link par click karne par) -> Monetag popunder 2 back-to-back
-    // 3rd click -> opens movie detail screen
+    // Exactly 1 Ad per movie click:
+    // 1st click -> Monetag ad 1
+    // 2nd click -> opens movie detail page directly
     const currentClicks = movieClickAdCounts[movie.id] || 0;
-    if (isLaptopOrTablet && currentClicks < 2) {
-      const nextClicks = currentClicks + 1;
-      setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: nextClicks }));
-      adService.triggerBackToBackMonetagPopunder(e, nextClicks);
+    if (currentClicks < 1) {
+      setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 1 }));
+      setPendingAdAction(() => () => {
+        setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 0 }));
+        window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
+        setSelectedMovie(movie);
+        setScreen("movie_detail");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, isMobile);
       return;
     }
 
-    // Reset counter for future visits
-    if (isLaptopOrTablet) {
-      setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 0 }));
-    }
+    // Reset counter for this movie and navigate to movie detail screen
+    setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 0 }));
 
     window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
     setSelectedMovie(movie);
@@ -2330,20 +2356,39 @@ export default function App() {
     }
   };
 
-  const filteredMovies = (movies || []).filter((movie) => {
-    if (!movie) return false;
-    const matchesSearch =
-      !searchQuery ||
-      (movie.title &&
-        typeof movie.title === "string" &&
-        movie.title.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesCategory =
-      selectedCategory === "All" || 
-      (Array.isArray(movie.category) 
-        ? movie.category.includes(selectedCategory) 
-        : movie.category === selectedCategory);
-    return matchesSearch && matchesCategory;
-  });
+  const getAverageRating = (movie: Movie): number => {
+    if (!movie.ratings || movie.ratings.length === 0) return 0;
+    return movie.ratings.reduce((sum, r) => sum + r, 0) / movie.ratings.length;
+  };
+
+  const filteredMovies = (movies || [])
+    .filter((movie) => {
+      if (!movie) return false;
+      const matchesSearch =
+        !searchQuery ||
+        (movie.title &&
+          typeof movie.title === "string" &&
+          movie.title.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesCategory =
+        selectedCategory === "All" || 
+        (Array.isArray(movie.category) 
+          ? movie.category.includes(selectedCategory) 
+          : movie.category === selectedCategory);
+      
+      const avgRating = getAverageRating(movie);
+      const matchesRating = ratingFilter === null || avgRating >= ratingFilter;
+
+      return matchesSearch && matchesCategory && matchesRating;
+    })
+    .sort((a, b) => {
+      if (ratingSort === "highest") {
+        return getAverageRating(b) - getAverageRating(a);
+      }
+      if (ratingSort === "lowest") {
+        return getAverageRating(a) - getAverageRating(b);
+      }
+      return 0;
+    });
 
   return (
     <div className="min-h-screen bg-[#080806] font-sans text-slate-50 selection:bg-red-500/30">
@@ -2378,7 +2423,19 @@ export default function App() {
                 )}
                 <div
                   id="text-logo"
-                  className="flex items-center text-xl sm:text-2xl font-black tracking-tight select-none hover:scale-105 transition-transform"
+                  className="flex items-center text-xl sm:text-2xl font-black tracking-tight select-none hover:scale-105 transition-transform cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStarClicks(prev => {
+                      if (prev + 1 >= 3) {
+                        setShowAdminLoginForm(true);
+                        setScreen("login");
+                        return 0;
+                      }
+                      return prev + 1;
+                    });
+                  }}
+                  title="Sigma Flix 4us"
                 >
                   <span className="bg-gradient-to-r from-white via-slate-100 to-red-400 bg-clip-text text-transparent font-black tracking-wide drop-shadow-[0_2px_10px_rgba(239,68,68,0.3)]">
                     SIGMA<span className="text-red-500 font-black"> FLIX</span>
@@ -2638,141 +2695,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* AI Bot Link Checker Dashboard */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-8">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Activity className={`w-5 h-5 ${botCheckStatus === 'running' ? 'text-blue-400 animate-pulse' : 'text-blue-500'}`} />
-                    AI Link Health Bot
-                  </h3>
-                  <button
-                    onClick={runAiBotCheck}
-                    disabled={botCheckStatus === 'running'}
-                    className="bg-blue-900/40 hover:bg-blue-800/60 text-blue-400 border border-blue-900/50 px-4 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {botCheckStatus === 'running' ? 'Scanning Network...' : 'Run Diagnostics'}
-                  </button>
-                </div>
-                
-                <div className="text-sm text-slate-400 mb-4">
-                  Last checked: {lastChecked || "Never"}
-                </div>
 
-                {botCheckStatus === 'running' && (
-                  <div className="flex items-center gap-3 text-blue-400 bg-blue-950/30 p-4 rounded-xl border border-blue-900/30">
-                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <span>AI Bot is verifying extraction protocols across the network...</span>
-                  </div>
-                )}
-
-                {botCheckStatus === 'done' && brokenLinksReport.length === 0 && (
-                  <div className="flex items-center gap-3 text-green-400 bg-green-950/30 p-4 rounded-xl border border-green-900/30">
-                    <CheckCircle className="w-5 h-5" />
-                    <span>All verified protocols are operational. No expired links detected.</span>
-                  </div>
-                )}
-
-                {botCheckStatus === 'done' && brokenLinksReport.length > 0 && (
-                  <div className="bg-red-950/20 border border-red-900/50 rounded-xl overflow-hidden">
-                    <div className="bg-red-900/40 px-4 py-2 flex items-center gap-2 border-b border-red-900/50">
-                      <XCircle className="w-4 h-4 text-red-400" />
-                      <span className="text-red-400 font-bold text-sm uppercase tracking-wider">Expired Protocols Detected ({brokenLinksReport.length})</span>
-                    </div>
-                    <div className="p-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto">
-                      {brokenLinksReport.map((report, idx) => (
-                        <div key={idx} className="flex justify-between items-start border-b border-slate-800 pb-3 last:border-0 last:pb-0">
-                           <div>
-                             <h4 className="text-slate-200 font-bold">{report.title}</h4>
-                             <p className="text-slate-500 text-xs mt-1">Resolution: {report.linkType}</p>
-                           </div>
-                           <a href={report.url} target="_blank"  rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300 underline break-all max-w-[200px]">
-                             View Link
-                           </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Google Search Console & SEO Master Panel */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-8">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-                  <div>
-                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                      <Globe className="w-5 h-5 text-emerald-400" />
-                      Google Search Console & SEO Control
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Manage site indexing, sitemaps, and search ownership verification.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Homepage Only in Sitemap
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-                    <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Live XML Sitemap</div>
-                    <a
-                      href="https://aplex-cinema-4us.vercel.app/sitemap.xml"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm font-semibold text-emerald-400 hover:text-emerald-300 underline break-all flex items-center gap-1.5"
-                    >
-                      <span>https://aplex-cinema-4us.vercel.app/sitemap.xml</span>
-                    </a>
-                    <p className="text-xs text-slate-500 mt-1">Sitemap contains only the main homepage (all movie links removed from indexing).</p>
-                  </div>
-
-                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-                    <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Robots.txt Engine</div>
-                    <a
-                      href="https://aplex-cinema-4us.vercel.app/robots.txt"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm font-semibold text-blue-400 hover:text-blue-300 underline break-all flex items-center gap-1.5"
-                    >
-                      <span>https://aplex-cinema-4us.vercel.app/robots.txt</span>
-                    </a>
-                    <p className="text-xs text-slate-500 mt-1">Configured for full Googlebot crawlability without cloaking.</p>
-                  </div>
-                </div>
-
-                <div className="bg-slate-950/80 p-4 sm:p-5 rounded-xl border border-slate-800">
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Google Search Console Verification Token / Meta Code:
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      type="text"
-                      value={gscVerificationCode}
-                      onChange={(e) => setGscVerificationCode(e.target.value)}
-                      placeholder="e.g. google-site-verification token or code"
-                      className="flex-1 bg-slate-900 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveGscCode}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-5 py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
-                    >
-                      <CheckCircle2 className="w-4 h-4" /> Save Token
-                    </button>
-                  </div>
-                  {gscSaved && (
-                    <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1 font-medium">
-                      ✓ Verification code saved to database & meta tags updated immediately!
-                    </p>
-                  )}
-                  <p className="text-xs text-slate-500 mt-2">
-                    Search Console me <strong>HTML tag</strong> option select karein aur content code yahan paste karke Save karein.
-                  </p>
-                </div>
-              </div>
 
 
 
@@ -4500,8 +4423,6 @@ export default function App() {
                   >
                     <span>⭐</span> Top Highlight
                   </h2>
-                  
-
                 </div>
               )}
               {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
@@ -4520,7 +4441,7 @@ export default function App() {
                     const activeHighlight = highlights[highlightIndex] || highlights[0];
                     if (!activeHighlight) return null;
                     
-                    const getYouTubeId = (url) => {
+                    const getYouTubeId = (url: string | undefined) => {
                       if (!url) return null;
                       const match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
                       return (match && match[2].length === 11) ? match[2] : null;
@@ -4759,12 +4680,12 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-4">
                   <div>
                     <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">
                       <span className="text-white">🔥</span> Latest Releases
                     </h1>
-                    <p className="text-slate-400 text-sm mt-1 font-medium">Total {movies.length > 0 ? movies.length : '190+'} titles available</p>
+                    <p className="text-slate-400 text-sm mt-1 font-medium">Total {filteredMovies.length} of {movies.length > 0 ? movies.length : '190+'} titles shown</p>
                   </div>
 
                   <div className="relative w-full md:w-96" onClick={isMobileOrTablet ? undefined : handleSearchBoxInteraction}>
@@ -4780,6 +4701,91 @@ export default function App() {
                       onFocus={isMobileOrTablet ? undefined : handleSearchBoxInteraction}
                       className="block w-full pl-11 pr-4 py-3 border border-slate-700/50 rounded-full bg-slate-900/60 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:bg-slate-900 backdrop-blur-md transition-all shadow-inner"
                     />
+                  </div>
+                </div>
+
+                {/* Rating Filter & Sort Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-8 p-3 sm:p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl backdrop-blur-sm">
+                  {/* Rating threshold buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+                      <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Filter Rating:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRatingFilter(null)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        ratingFilter === null
+                          ? "bg-red-600 text-white shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                          : "bg-slate-900 text-slate-300 hover:text-white border border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      All Ratings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRatingFilter(ratingFilter === 4 ? null : 4)}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        ratingFilter === 4
+                          ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+                          : "bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40"
+                      }`}
+                    >
+                      <Star className="w-3 h-3 fill-current" />
+                      <span>4★ & Above</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRatingFilter(ratingFilter === 4.5 ? null : 4.5)}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        ratingFilter === 4.5
+                          ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+                          : "bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40"
+                      }`}
+                    >
+                      <Star className="w-3 h-3 fill-current" />
+                      <span>4.5★ & Above</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRatingFilter(ratingFilter === 3 ? null : 3)}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        ratingFilter === 3
+                          ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+                          : "bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40"
+                      }`}
+                    >
+                      <Star className="w-3 h-3 fill-current" />
+                      <span>3★ & Above</span>
+                    </button>
+                  </div>
+
+                  {/* Sort by rating toggle */}
+                  <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      Sort:
+                    </span>
+                    <select
+                      value={ratingSort}
+                      onChange={(e) => setRatingSort(e.target.value as any)}
+                      className="bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 cursor-pointer"
+                    >
+                      <option value="none">Default Order</option>
+                      <option value="highest">Highest Rated First (★ 5 → 1)</option>
+                      <option value="lowest">Lowest Rated First (★ 1 → 5)</option>
+                    </select>
+                    {(ratingFilter !== null || ratingSort !== "none") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRatingFilter(null);
+                          setRatingSort("none");
+                        }}
+                        className="text-xs text-red-400 hover:text-red-300 underline font-medium ml-1"
+                      >
+                        Reset
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -4800,7 +4806,9 @@ export default function App() {
                 ) : filteredMovies.length > 0 ? (
                   <div className="mb-12">
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
-                      {filteredMovies.map((item, index) => (
+                      {filteredMovies.map((item, index) => {
+                        const cardRating = getAverageRating(item);
+                        return (
                         <motion.a
                           href={`/movie/${item.id}/${generateCleanSlug(item.title)}`}
                           initial={{ opacity: 0, y: 20 }}
@@ -4813,6 +4821,12 @@ export default function App() {
                           <div className="absolute top-2 right-2 bg-slate-950/80 backdrop-blur-sm text-red-400 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded border border-red-900/50 z-10">
                             {item.type === "series" ? "Series" : "Online"}
                           </div>
+                          {cardRating > 0 && (
+                            <div className="absolute bottom-2 left-2 bg-black/85 backdrop-blur-sm text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/40 flex items-center gap-1 z-10 shadow-md">
+                              <Star className="w-2.5 h-2.5 fill-current" />
+                              <span>{cardRating.toFixed(1)}</span>
+                            </div>
+                          )}
                           <button onClick={(e) => toggleBookmark(item.id, e)} className={`absolute top-2 left-2 z-30 p-1.5 rounded-full backdrop-blur-sm transition-all shadow-md ${bookmarks.includes(item.id) ? "bg-red-600/90 text-white" : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"}`}>
                             <Bookmark className={`w-3.5 h-3.5 ${bookmarks.includes(item.id) ? "fill-current" : ""}`} />
                           </button>
@@ -4852,7 +4866,8 @@ export default function App() {
                             )}
                           </div>
                         </motion.a>
-                      ))}
+                      );
+                    })}
                     </div>
                   </div>
                 ) : (
@@ -4861,9 +4876,21 @@ export default function App() {
                     <h3 className="text-xl font-bold text-white mb-2">
                       Matrix Empty
                     </h3>
-                    <p className="text-slate-500">
-                      No signals found matching your parameters.
+                    <p className="text-slate-500 mb-4">
+                      No titles found matching your rating or search parameters.
                     </p>
+                    {(ratingFilter !== null || ratingSort !== "none") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRatingFilter(null);
+                          setRatingSort("none");
+                        }}
+                        className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                      >
+                        Clear Rating Filters
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -5479,22 +5506,22 @@ export default function App() {
                 </span>
               </div>
 
-              {/* User requested: Chota sa ad skip ka option */}
+              {/* User requested: Chota sa ad skip ka option (impression count hone ke 2-3s baad) */}
               <div className="flex items-center gap-2 shrink-0">
                 {mobileAdSkipReady ? (
                   <button
                     type="button"
                     onClick={handleSkipAd}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white font-black text-xs rounded-full shadow-[0_0_15px_rgba(239,68,68,0.7)] border border-white/20 active:scale-95 animate-pulse cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white font-black text-xs rounded-full shadow-[0_0_15px_rgba(239,68,68,0.7)] border border-white/20 active:scale-95 animate-pulse cursor-pointer"
                     title="Cut ad tab and continue immediately"
                   >
                     <SkipForward className="w-3.5 h-3.5" />
                     <span>Ad Skip ✕</span>
                   </button>
                 ) : (
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 bg-zinc-800/90 px-2.5 py-1 rounded-full border border-zinc-700">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                    <span>Ad Loading...</span>
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded-full border border-amber-500/40 shadow-inner">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                    <span>Impression Counting ({skipCountdown}s)...</span>
                   </div>
                 )}
               </div>
@@ -5511,17 +5538,24 @@ export default function App() {
                   {mobileAdTab.network} Ad Active
                 </h3>
                 <p className="text-xs text-zinc-400 max-w-xs mb-4">
-                  Ad page loaded. Tap "Ad Skip ✕" above or below to cut this ad tab and return directly to your movie content.
+                  {mobileAdSkipReady
+                    ? 'Ad impression recorded! Tap "Ad Skip ✕" above or below to cut this ad tab and return directly to your movie content.'
+                    : `Ad impression is recording (${skipCountdown}s)... Skip option will appear automatically.`}
                 </p>
-                {mobileAdSkipReady && (
+                {mobileAdSkipReady ? (
                   <button
                     type="button"
                     onClick={handleSkipAd}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-red-600/40 cursor-pointer"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-red-600/40 border border-red-400/30 cursor-pointer animate-pulse"
                   >
                     <SkipForward className="w-4 h-4" />
                     <span>Cut Ad Tab & Return to Movie ✕</span>
                   </button>
+                ) : (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                    <span>Counting impression... Skip in {skipCountdown}s</span>
+                  </div>
                 )}
               </div>
 
@@ -5539,21 +5573,32 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Small 'Ad Skip ✕' Button on Mobile Viewport */}
+      {/* Floating Small 'Ad Skip ✕' / Countdown on Mobile Viewport */}
       <AnimatePresence>
-        {mobileAdTab && mobileAdSkipReady && (
-          <motion.button
-            type="button"
+        {mobileAdTab && (
+          <motion.div
             initial={{ opacity: 0, scale: 0.8, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: -10 }}
-            onClick={handleSkipAd}
-            className="fixed top-3 right-3 z-[99999999] flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 via-red-500 to-amber-500 text-white font-black text-xs rounded-full shadow-[0_0_18px_rgba(239,68,68,0.85)] border border-white/30 active:scale-95 animate-pulse cursor-pointer"
-            title="Cut ad tab and continue"
+            className="fixed top-3 right-3 z-[99999999]"
           >
-            <SkipForward className="w-3.5 h-3.5" />
-            <span>Ad Skip ✕</span>
-          </motion.button>
+            {mobileAdSkipReady ? (
+              <button
+                type="button"
+                onClick={handleSkipAd}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 via-red-500 to-amber-500 text-white font-black text-xs rounded-full shadow-[0_0_18px_rgba(239,68,68,0.85)] border border-white/30 active:scale-95 animate-pulse cursor-pointer"
+                title="Cut ad tab and continue"
+              >
+                <SkipForward className="w-3.5 h-3.5" />
+                <span>Ad Skip ✕</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-black/85 backdrop-blur-md border border-amber-500/40 text-amber-300 font-bold text-[11px] rounded-full shadow-lg">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                <span>Skip in {skipCountdown}s</span>
+              </div>
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -5574,9 +5619,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* APK Push Notification - Sliding smoothly up from bottom (No screen blur, No center modal) */}
+      {/* APK Push Notification - Active across site except Admin Panel */}
       <AnimatePresence>
-        {showNotificationPopup && !isApkInstalled && (
+        {showNotificationPopup && !isApkInstalled && screen !== "admin_dashboard" && (
           <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
             {/* Notification Card Sliding from Bottom */}
             <motion.div
@@ -5629,24 +5674,43 @@ export default function App() {
                   For the best streaming experience, download our official Android app.
                 </p>
 
-                {/* Install Button - Direct download, desktop triggers ad, mobile stays ad-free */}
-                <a
-                  href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => {
-                    const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
-                    if (!isMobile) {
-                      adService.triggerMonetagDirect(e, 'desktop_apk_install_btn', false);
-                    }
-                    handleApkDownload();
-                    setShowNotificationPopup(false);
-                  }}
-                  className="w-full bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold text-base py-3 px-6 rounded-xl shadow-lg shadow-red-600/40 transition-all flex items-center justify-center gap-2 cursor-pointer hover:shadow-red-600/60"
-                >
-                  <Download className="w-5 h-5" />
-                  <span>Install APK</span>
-                </a>
+                {/* Actions: Install Button + Skip / Close Option */}
+                <div className="flex flex-col gap-2.5">
+                  <a
+                    href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => {
+                      const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
+                      if (!isMobile) {
+                        adService.triggerMonetagDirect(e, 'desktop_apk_install_btn', false);
+                      }
+                      handleApkDownload();
+                      setShowNotificationPopup(false);
+                    }}
+                    className="w-full bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold text-base py-3 px-6 rounded-xl shadow-lg shadow-red-600/40 transition-all flex items-center justify-center gap-2 cursor-pointer hover:shadow-red-600/60"
+                  >
+                    <Download className="w-5 h-5" />
+                    <span>Install APK</span>
+                  </a>
+
+                  {/* Skip Option for APK on Mobile */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
+                      if (!isMobile) {
+                        adService.triggerMonetagDirect(e, 'desktop_apk_notification_skip_btn', false);
+                      }
+                      setShowNotificationPopup(false);
+                    }}
+                    className="w-full py-2 text-xs sm:text-sm font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                  >
+                    <SkipForward className="w-3.5 h-3.5" />
+                    <span>Skip for now ✕</span>
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

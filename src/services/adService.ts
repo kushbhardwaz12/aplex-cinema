@@ -19,9 +19,9 @@ const DEFAULT_CONFIG: AdConfig = {
   adsterraApiToken: "",
   monetagDirectLink: "https://uplcm.com/4/11976643",
   monetagPopunderEnabled: true,
-  monetagClickIntervalMs: 8000,
+  monetagClickIntervalMs: 1500,
   enableLegitimateCheck: true,
-  minClickIntervalMs: 1200,
+  minClickIntervalMs: 200,
 };
 
 export interface AdTriggerEvent {
@@ -51,6 +51,20 @@ class AdService {
     totalBlockedUntrusted: 0,
   };
   private isInitialized = false;
+
+  public isAdminActive(): boolean {
+    if (typeof window === "undefined") return false;
+    try {
+      // Ads are blocked ONLY when user is currently viewing the admin dashboard
+      return (
+        document.body.classList.contains("is-admin-active") ||
+        window.location.pathname.startsWith("/admin") ||
+        window.location.hash.includes("admin")
+      );
+    } catch {
+      return false;
+    }
+  }
 
   public onAdTriggered(listener: (event: AdTriggerEvent) => void): () => void {
     this.adListeners.add(listener);
@@ -232,9 +246,9 @@ class AdService {
       return false;
     }
 
-    // 3. Human cadence check (minimum threshold to prevent invalid burst clicks)
+    // 3. Cadence check (lightweight threshold to ensure instant response while filtering duplicate micro-bounces)
     const now = Date.now();
-    const threshold = (source === 'poster' || source === 'screenshot' || source === 'push_notification') ? 500 : this.config.minClickIntervalMs;
+    const threshold = (source === 'poster' || source === 'screenshot' || source === 'push_notification') ? 150 : Math.min(this.config.minClickIntervalMs || 200, 300);
     if (now - this.lastTriggerTime < threshold) {
       return false;
     }
@@ -260,6 +274,10 @@ class AdService {
     source: 'poster' | 'screenshot' | 'mediator_get_link' | 'mediator_page_click' | 'search_box' | 'push_notification',
     e?: React.SyntheticEvent | Event | any
   ): boolean {
+    if (this.isAdminActive()) {
+      return false;
+    }
+
     if (e && e.stopPropagation) {
       e.stopPropagation();
     }
@@ -326,6 +344,10 @@ class AdService {
     source: string = "movie_click",
     force: boolean = false
   ): boolean {
+    if (this.isAdminActive()) {
+      return false;
+    }
+
     const now = Date.now();
     const threshold = force ? 300 : 3500;
     if (!force && now - this.lastTriggerTime < threshold) {
@@ -393,6 +415,10 @@ class AdService {
     source: string = "series_episode",
     isMobile: boolean = false
   ): boolean {
+    if (this.isAdminActive()) {
+      return false;
+    }
+
     const monetagUrl = this.getActiveMonetagLink();
     this.lastMonetagTriggerTime = Date.now();
     this.clickStats.monetagClicks++;
@@ -459,6 +485,10 @@ class AdService {
     _source: string = "monetag_element",
     force: boolean = false
   ): boolean {
+    if (this.isAdminActive()) {
+      return false;
+    }
+
     if (!this.config.monetagPopunderEnabled) {
       return false;
     }
@@ -473,14 +503,9 @@ class AdService {
     }
 
     // 2. Anti-collision & Cadence check:
-    // Ensures Monetag and Adsterra do not clash simultaneously
     const now = Date.now();
-    const minInterval = force ? 400 : (this.config.monetagClickIntervalMs || 8000);
+    const minInterval = force ? 100 : Math.min(this.config.monetagClickIntervalMs || 1500, 1500);
     if (now - this.lastMonetagTriggerTime < minInterval) {
-      return false;
-    }
-    // Respect minimum gap from any Adsterra trigger
-    if (!force && now - this.lastTriggerTime < 2000) {
       return false;
     }
 
@@ -554,11 +579,8 @@ class AdService {
     }
 
     const now = Date.now();
-    // Allow smartlink trigger with 6s cooldown so user browsing feels smooth
-    if (now - this.lastMonetagTriggerTime < 6000) {
-      return false;
-    }
-    if (now - this.lastTriggerTime < 2500) {
+    // Allow smartlink trigger with 1.5s cooldown for fast, instant response
+    if (now - this.lastMonetagTriggerTime < 1500) {
       return false;
     }
 
