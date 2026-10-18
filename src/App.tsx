@@ -636,19 +636,40 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [isDesktop, screen]);
 
-  // Legitimate interaction ad trigger for Movie Poster Photo and Screenshots
+  // User request:
+  // "maine movie ka jo photo hai usper click karne par serch bar par aur link par sath maine trealer par 1 ad hogi movei page ke andar adsera ki bahar maoine par monetag ki"
+  const lastSearchAdTime = useRef<number>(0);
+  const handleSearchBoxInteraction = (e?: any) => {
+    if (screen === "admin_dashboard") return;
+    const now = Date.now();
+    // 25s cooldown so typing is smooth
+    if (now - lastSearchAdTime.current < 25000) return;
+    lastSearchAdTime.current = now;
+
+    const isMobile = isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768) || isApkInstalled;
+
+    // Set pending action so skipping/closing ad refocuses the search input
+    setPendingAdAction(() => () => {
+      const searchEl = document.getElementById("main-search-input") as HTMLInputElement;
+      if (searchEl) {
+        searchEl.focus();
+      }
+    });
+
+    // Outside / main page -> Monetag (1 ad only)
+    adService.triggerMonetagDirect(e, 'search_bar', isMobile);
+  };
+
+  // Movie Photo and Screenshots inside Movie Detail Page -> Adsterra! (1 ad only)
   const handleImageAdClick = (e?: React.MouseEvent | React.TouchEvent, source: 'poster' | 'screenshot' = 'poster') => {
     if (screen === "admin_dashboard") {
       return;
     }
-    adService.triggerLegitimateAd(source, e);
-  };
-
-  const handleSearchBoxInteraction = (e?: any) => {
-    if (screen === "admin_dashboard") return;
-    // Remove ads on mobile as requested: "mobile maine serch se aur get apk popup se ad hata do"
-    if (isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768)) return;
-    adService.triggerLegitimateAd('search_box', e);
+    if (e && e.stopPropagation) {
+      e.stopPropagation();
+    }
+    // Inside movie page -> Adsterra (1 ad only)!
+    adService.triggerAdsterraDirect(e, `movie_detail_${source}`, true);
   };
 
   const handleMovieInteraction = (e?: React.MouseEvent) => {
@@ -718,7 +739,11 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [mobileAdTab]);
 
-  const handleSkipAd = () => {
+  const handleSkipAd = (e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     // 1. Close opened ad tab in browser/webview
     adService.closeOpenedAdWindow();
 
@@ -728,8 +753,9 @@ export default function App() {
     // 3. Close the in-app mobile ad tab view
     setMobileAdTab(null);
     setMobileAdSkipReady(false);
+    setSkipCountdown(3);
 
-    // 4. Execute pending action if any was queued (e.g. movie download or episode link)
+    // 4. Execute pending action if any was queued (e.g. movie download, detail navigation, search focus)
     if (pendingAdAction) {
       try {
         pendingAdAction();
@@ -739,10 +765,10 @@ export default function App() {
       setPendingAdAction(null);
     }
 
-    setSkipNoticeToast("⚡ Ad cut successfully! Continuing to content...");
+    setSkipNoticeToast("⚡ Ad skipped! Continuing to content...");
     setTimeout(() => {
       setSkipNoticeToast(null);
-    }, 2800);
+    }, 2500);
   };
 
   const [downloadClickCounts, setDownloadClickCounts] = useState<Record<string, number>>({});
@@ -1266,8 +1292,6 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [adminSearchQuery, setAdminSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
-  const [ratingFilter, setRatingFilter] = useState<number | null>(null); // e.g. 4 for 4+ stars, or null for all
-  const [ratingSort, setRatingSort] = useState<"none" | "highest" | "lowest">("none");
   const [movieCategory, setMovieCategory] = useState<string[]>(["Action"]);
   const [customCategoryInput, setCustomCategoryInput] = useState("");
   const [customSeriesCategoryInput, setCustomSeriesCategoryInput] = useState("");
@@ -1552,30 +1576,16 @@ export default function App() {
       return;
     }
 
-    // Exactly 1 Ad per movie click:
-    // 1st click -> Monetag ad 1
-    // 2nd click -> opens movie detail page directly
-    const currentClicks = movieClickAdCounts[movie.id] || 0;
-    if (currentClicks < 1) {
-      setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 1 }));
-      setPendingAdAction(() => () => {
-        setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 0 }));
-        window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
-        setSelectedMovie(movie);
-        setScreen("movie_detail");
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      });
-      adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, isMobile);
-      return;
-    }
-
-    // Reset counter for this movie and navigate to movie detail screen
-    setMovieClickAdCounts(prev => ({ ...prev, [movie.id]: 0 }));
-
+    // User requirement:
+    // "movie par click karne par AD TO KHULE PAR BACKGROUND MAINE MOVIE BHI KHULNI CJHIYE"
+    // 1. Immediately navigate and open movie detail page in the background
     window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
     setSelectedMovie(movie);
     setScreen("movie_detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
+
+    // 2. Trigger Monetag ad simultaneously (1 ad only)
+    adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, isMobile);
   };
 
   // Series Episode Links Monetag 1-Ad Click Tracking (Mobile & Laptop separate handling)
@@ -1601,14 +1611,14 @@ export default function App() {
     const deviceKey = isMobile ? `mobile_${actionKey}` : `laptop_${actionKey}`;
     const currentClicks = episodeClickCounts[deviceKey] || 0;
 
-    // 1st click: Exactly 1 Monetag ad (Mobile opens in mobile tab, Laptop opens in desktop tab/popunder)
+    // 1st click: Exactly 1 Adsterra ad (inside movie page)
     if (currentClicks < 1) {
       setEpisodeClickCounts(prev => ({ ...prev, [deviceKey]: 1 }));
       setPendingAdAction(() => () => {
         setEpisodeClickCounts(prev => ({ ...prev, [deviceKey]: 0 }));
         window.open(cleanUrl, "_blank", "noopener,noreferrer");
       });
-      adService.triggerMonetagDirect(e, isMobile ? 'series_episode_mobile' : 'series_episode_laptop', isMobile);
+      adService.triggerAdsterraDirect(e, isMobile ? 'series_episode_mobile' : 'series_episode_laptop', true);
       return;
     }
 
@@ -2361,40 +2371,27 @@ export default function App() {
     return movie.ratings.reduce((sum, r) => sum + r, 0) / movie.ratings.length;
   };
 
-  const filteredMovies = (movies || [])
-    .filter((movie) => {
-      if (!movie) return false;
-      const matchesSearch =
-        !searchQuery ||
-        (movie.title &&
-          typeof movie.title === "string" &&
-          movie.title.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesCategory =
-        selectedCategory === "All" || 
-        (Array.isArray(movie.category) 
-          ? movie.category.includes(selectedCategory) 
-          : movie.category === selectedCategory);
-      
-      const avgRating = getAverageRating(movie);
-      const matchesRating = ratingFilter === null || avgRating >= ratingFilter;
-
-      return matchesSearch && matchesCategory && matchesRating;
-    })
-    .sort((a, b) => {
-      if (ratingSort === "highest") {
-        return getAverageRating(b) - getAverageRating(a);
-      }
-      if (ratingSort === "lowest") {
-        return getAverageRating(a) - getAverageRating(b);
-      }
-      return 0;
-    });
+  const filteredMovies = (movies || []).filter((movie) => {
+    if (!movie) return false;
+    const matchesSearch =
+      !searchQuery ||
+      (movie.title &&
+        typeof movie.title === "string" &&
+        movie.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesCategory =
+      selectedCategory === "All" || 
+      (Array.isArray(movie.category) 
+        ? movie.category.includes(selectedCategory) 
+        : movie.category === selectedCategory);
+    
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="min-h-screen bg-[#080806] font-sans text-slate-50 selection:bg-red-500/30">
       
       {/* NAVBAR */}
-      <nav className="bg-[#080806]/80 backdrop-blur-md sticky top-0 z-50">
+      <nav className={`backdrop-blur-md sticky top-0 transition-all ${isApkInstalled && mobileAdTab ? 'z-[999999999] bg-[#080806] border-b border-red-500/40 shadow-2xl' : 'bg-[#080806]/80 z-50'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div 
             className="flex items-center justify-between h-16"
@@ -2404,7 +2401,7 @@ export default function App() {
               }
             }}
           >
-                        <div
+            <div
               className="flex items-center gap-3 group cursor-pointer"
               onClick={() => setScreen("public_home")}
             >
@@ -2447,13 +2444,36 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
-              <button
-                onClick={() => setScreen("my_library")}
-                className="flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-red-400 transition-colors px-3 py-2 rounded-md hover:bg-slate-800"
-              >
-                <Bookmark className="w-4 h-4" />
-                <span className="hidden sm:inline">My Library</span>
-              </button>
+              {/* For APK: When ad is open, My Library hides and the Skip Option appears right here permanently */}
+              {isApkInstalled && mobileAdTab ? (
+                <div className="flex items-center gap-1.5 animate-fadeIn">
+                  {mobileAdSkipReady ? (
+                    <button
+                      type="button"
+                      onClick={handleSkipAd}
+                      onTouchEnd={handleSkipAd}
+                      className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.95)] border border-white/50 cursor-pointer animate-pulse touch-manipulation select-none"
+                      title="Cut ad and continue"
+                    >
+                      <SkipForward className="w-4 h-4" />
+                      <span>Ad Skip ✕</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/90 px-3 py-1.5 rounded-full border border-amber-500/60 shadow-inner">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                      <span>Skip in {skipCountdown}s</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => setScreen("my_library")}
+                  className="flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-red-400 transition-colors px-3 py-2 rounded-md hover:bg-slate-800"
+                >
+                  <Bookmark className="w-4 h-4" />
+                  <span className="hidden sm:inline">My Library</span>
+                </button>
+              )}
 
               {/* Get APK Button - stays visible in navbar; only hidden when running inside the installed APK */}
               {screen !== "login" && screen !== "pin_check" && !isApkInstalled && (
@@ -4393,16 +4413,6 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="w-full cursor-default"
-              onClick={(e) => {
-                if (screen !== "public_home") return;
-                const target = e.target as HTMLElement;
-                // If clicked on an interactive element (button, link, input, etc.), let that element handle it
-                if (target.closest("button, a, input, textarea, select, [role='button']")) {
-                  return;
-                }
-                // Monetag SmartLink activates when clicking anywhere on empty space of main movies page
-                adService.triggerMonetagSmartLink(e, 'home_empty_space');
-              }}
             >
               {/* Highlights Slider Edge Style */}
               {!searchQuery && (isLoadingMovies || movies.filter((m) => m.isHighlight).length > 0) && (
@@ -4688,106 +4698,24 @@ export default function App() {
                     <p className="text-slate-400 text-sm mt-1 font-medium">Total {filteredMovies.length} of {movies.length > 0 ? movies.length : '190+'} titles shown</p>
                   </div>
 
-                  <div className="relative w-full md:w-96" onClick={isMobileOrTablet ? undefined : handleSearchBoxInteraction}>
+                  <div className="relative w-full md:w-96">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                       <Search className="h-5 w-5 text-red-500/50" />
                     </div>
                     <input
+                      id="main-search-input"
                       type="text"
                       placeholder="Search movies, web series, genres..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      onClick={isMobileOrTablet ? undefined : handleSearchBoxInteraction}
-                      onFocus={isMobileOrTablet ? undefined : handleSearchBoxInteraction}
+                      onClick={handleSearchBoxInteraction}
+                      onFocus={handleSearchBoxInteraction}
                       className="block w-full pl-11 pr-4 py-3 border border-slate-700/50 rounded-full bg-slate-900/60 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 focus:bg-slate-900 backdrop-blur-md transition-all shadow-inner"
                     />
                   </div>
                 </div>
 
-                {/* Rating Filter & Sort Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-8 p-3 sm:p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl backdrop-blur-sm">
-                  {/* Rating threshold buttons */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mr-1">
-                      <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Filter Rating:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setRatingFilter(null)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        ratingFilter === null
-                          ? "bg-red-600 text-white shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                          : "bg-slate-900 text-slate-300 hover:text-white border border-slate-800 hover:border-slate-700"
-                      }`}
-                    >
-                      All Ratings
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRatingFilter(ratingFilter === 4 ? null : 4)}
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        ratingFilter === 4
-                          ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]"
-                          : "bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40"
-                      }`}
-                    >
-                      <Star className="w-3 h-3 fill-current" />
-                      <span>4★ & Above</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRatingFilter(ratingFilter === 4.5 ? null : 4.5)}
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        ratingFilter === 4.5
-                          ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]"
-                          : "bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40"
-                      }`}
-                    >
-                      <Star className="w-3 h-3 fill-current" />
-                      <span>4.5★ & Above</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRatingFilter(ratingFilter === 3 ? null : 3)}
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        ratingFilter === 3
-                          ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.5)]"
-                          : "bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40"
-                      }`}
-                    >
-                      <Star className="w-3 h-3 fill-current" />
-                      <span>3★ & Above</span>
-                    </button>
-                  </div>
 
-                  {/* Sort by rating toggle */}
-                  <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Sort:
-                    </span>
-                    <select
-                      value={ratingSort}
-                      onChange={(e) => setRatingSort(e.target.value as any)}
-                      className="bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 cursor-pointer"
-                    >
-                      <option value="none">Default Order</option>
-                      <option value="highest">Highest Rated First (★ 5 → 1)</option>
-                      <option value="lowest">Lowest Rated First (★ 1 → 5)</option>
-                    </select>
-                    {(ratingFilter !== null || ratingSort !== "none") && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRatingFilter(null);
-                          setRatingSort("none");
-                        }}
-                        className="text-xs text-red-400 hover:text-red-300 underline font-medium ml-1"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
 
                 {isLoadingMovies && movies.length === 0 ? (
                   <div className="mb-12">
@@ -4877,20 +4805,8 @@ export default function App() {
                       Matrix Empty
                     </h3>
                     <p className="text-slate-500 mb-4">
-                      No titles found matching your rating or search parameters.
+                      No titles found matching your search parameters.
                     </p>
-                    {(ratingFilter !== null || ratingSort !== "none") && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRatingFilter(null);
-                          setRatingSort("none");
-                        }}
-                        className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
-                      >
-                        Clear Rating Filters
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -4907,15 +4823,6 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={(e) => {
-                const target = e.target as HTMLElement;
-                // If user clicked inside an active button, link or input, let it handle its own logic
-                if (target.closest('button') || target.closest('a') || target.closest('input')) {
-                  return;
-                }
-                // Clicks anywhere else on divs/text/headers inside movie page trigger Adsterra ad
-                adService.triggerAdsterraDirect(e, 'movie_page_empty_div', false);
-              }}
               className="w-full max-w-[1600px] mx-auto px-4 py-8 sm:px-6 lg:px-12"
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -4935,7 +4842,6 @@ export default function App() {
                   >
                     <div 
                       onClick={(e) => handleImageAdClick(e, 'poster')}
-                      onTouchEnd={(e) => handleImageAdClick(e, 'poster')}
                       className="aspect-[2/3] bg-slate-900 rounded-2xl overflow-hidden border border-slate-700 shadow-[0_0_30px_rgba(0,0,0,0.5)] hover:border-red-500/80 hover:shadow-[0_0_30px_rgba(239,68,68,0.35)] active:scale-[0.98] transition-all relative group cursor-pointer"
                       title="Click photo to view"
                     >
@@ -4945,8 +4851,6 @@ export default function App() {
                       <img 
                         src={selectedMovie.image} 
                         alt={selectedMovie.title} 
-                        onClick={(e) => handleImageAdClick(e, 'poster')}
-                        onTouchEnd={(e) => handleImageAdClick(e, 'poster')}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer pointer-events-auto" 
                       />
                       <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/10 transition-colors pointer-events-none" />
@@ -5076,21 +4980,22 @@ export default function App() {
                           <div
                             key={i}
                             onClick={(e) => handleImageAdClick(e, 'screenshot')}
-                            onTouchEnd={(e) => handleImageAdClick(e, 'screenshot')}
                             className="aspect-video bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow-lg hover:border-red-500/80 hover:shadow-[0_0_25px_rgba(239,68,68,0.3)] active:scale-[0.98] transition-all cursor-pointer relative group"
                             title="Click screenshot"
                           >
                             <ImageWithSkeleton
                               src={img}
                               alt={`Screenshot ${i + 1}`}
-                              onClick={(e) => handleImageAdClick(e, 'screenshot')}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer pointer-events-auto"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
                             />
                           </div>
                         ))}
                       </div>
                     </motion.div>
                   )}
+
+                {/* HDHub4u Ad Format: Sponsored Native Banner Ad right before Download Links */}
+                <NativeBannerAd />
 
                 {/* BOTTOM: Download Buttons */}
                 <motion.div
@@ -5374,7 +5279,13 @@ export default function App() {
                     <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-6 flex items-center gap-2">
                       <Play className="w-5 h-5" /> Official Trailer
                     </h4>
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden aspect-video relative">
+                    <div 
+                      onClick={(e) => {
+                        // Inside movie page -> Adsterra! (1 ad only)
+                        adService.triggerAdsterraDirect(e, 'movie_detail_trailer', false);
+                      }}
+                      className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden aspect-video relative group cursor-pointer"
+                    >
                       {selectedMovie.trailerUrl.includes('youtube.com') || selectedMovie.trailerUrl.includes('youtu.be') ? (
                         <iframe
                           src={getEmbedUrl(selectedMovie.trailerUrl)}
@@ -5492,13 +5403,13 @@ export default function App() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[9999999] bg-[#09090b] flex flex-col select-none"
+            className={`fixed inset-x-0 bottom-0 bg-[#09090b] flex flex-col select-none ${isApkInstalled ? 'top-16 z-[999999]' : 'inset-0 z-[9999999]'}`}
           >
             {/* Top Compact Header with 'Ad Skip' option */}
-            <div className="h-12 bg-zinc-950 border-b border-zinc-800 px-3 flex items-center justify-between text-white shrink-0 z-20 shadow-lg">
+            <div className="h-14 bg-zinc-950 border-b border-zinc-800 px-3 sm:px-4 flex items-center justify-between text-white shrink-0 z-30 shadow-2xl">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/30 shrink-0">
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 bg-amber-950/90 px-2.5 py-1 rounded-md border border-amber-500/40 shrink-0">
                   {mobileAdTab.network} Ad
                 </span>
                 <span className="text-xs text-zinc-300 font-semibold truncate hidden sm:inline">
@@ -5512,14 +5423,15 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleSkipAd}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white font-black text-xs rounded-full shadow-[0_0_15px_rgba(239,68,68,0.7)] border border-white/20 active:scale-95 animate-pulse cursor-pointer"
-                    title="Cut ad tab and continue immediately"
+                    onTouchEnd={handleSkipAd}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.9)] border border-white/40 cursor-pointer animate-pulse touch-manipulation select-none"
+                    title="Cut ad and continue immediately"
                   >
-                    <SkipForward className="w-3.5 h-3.5" />
+                    <SkipForward className="w-4 h-4" />
                     <span>Ad Skip ✕</span>
                   </button>
                 ) : (
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded-full border border-amber-500/40 shadow-inner">
+                  <div className="flex items-center gap-2 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/90 px-3 py-1.5 rounded-full border border-amber-500/50 shadow-inner">
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                     <span>Impression Counting ({skipCountdown}s)...</span>
                   </div>
@@ -5539,14 +5451,15 @@ export default function App() {
                 </h3>
                 <p className="text-xs text-zinc-400 max-w-xs mb-4">
                   {mobileAdSkipReady
-                    ? 'Ad impression recorded! Tap "Ad Skip ✕" above or below to cut this ad tab and return directly to your movie content.'
+                    ? 'Ad impression recorded! Tap "Ad Skip ✕" to cut this ad tab and return directly to your movie content.'
                     : `Ad impression is recording (${skipCountdown}s)... Skip option will appear automatically.`}
                 </p>
                 {mobileAdSkipReady ? (
                   <button
                     type="button"
                     onClick={handleSkipAd}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-red-600/40 border border-red-400/30 cursor-pointer animate-pulse"
+                    onTouchEnd={handleSkipAd}
+                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-red-600/40 border border-red-400/30 cursor-pointer animate-pulse touch-manipulation select-none"
                   >
                     <SkipForward className="w-4 h-4" />
                     <span>Cut Ad Tab & Return to Movie ✕</span>
@@ -5573,31 +5486,24 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Small 'Ad Skip ✕' / Countdown on Mobile Viewport */}
+      {/* Floating Bottom Thumb 'Ad Skip ✕' on Mobile / APK Viewport */}
       <AnimatePresence>
-        {mobileAdTab && (
+        {mobileAdTab && mobileAdSkipReady && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.8, y: -10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: -10 }}
-            className="fixed top-3 right-3 z-[99999999]"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 inset-x-0 z-[99999999] flex justify-center px-4 pointer-events-auto"
           >
-            {mobileAdSkipReady ? (
-              <button
-                type="button"
-                onClick={handleSkipAd}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 via-red-500 to-amber-500 text-white font-black text-xs rounded-full shadow-[0_0_18px_rgba(239,68,68,0.85)] border border-white/30 active:scale-95 animate-pulse cursor-pointer"
-                title="Cut ad tab and continue"
-              >
-                <SkipForward className="w-3.5 h-3.5" />
-                <span>Ad Skip ✕</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-black/85 backdrop-blur-md border border-amber-500/40 text-amber-300 font-bold text-[11px] rounded-full shadow-lg">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                <span>Skip in {skipCountdown}s</span>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={handleSkipAd}
+              onTouchEnd={handleSkipAd}
+              className="w-full max-w-xs flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-[0_10px_25px_rgba(239,68,68,0.7)] border border-white/30 cursor-pointer animate-pulse touch-manipulation select-none"
+            >
+              <SkipForward className="w-4 h-4" />
+              <span>Cut Ad Tab & Return to Movie ✕</span>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

@@ -37,6 +37,7 @@ class AdService {
   private config: AdConfig = { ...DEFAULT_CONFIG };
   private lastTriggerTime: number = 0;
   private lastMonetagTriggerTime: number = 0;
+  private adLockUntil: number = 0;
   private lastOpenedAdWindow: Window | null = null;
   private adListeners: Set<(event: AdTriggerEvent) => void> = new Set();
   private clickStats = {
@@ -51,6 +52,17 @@ class AdService {
     totalBlockedUntrusted: 0,
   };
   private isInitialized = false;
+
+  public isApkEnvironment(): boolean {
+    if (typeof window === "undefined") return false;
+    try {
+      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any)?.standalone === true;
+      const isWebView = /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent) || /SigmaFlix|Aplex/i.test(navigator.userAgent);
+      return Boolean(isStandalone || isWebView);
+    } catch {
+      return false;
+    }
+  }
 
   public isAdminActive(): boolean {
     if (typeof window === "undefined") return false;
@@ -286,7 +298,13 @@ class AdService {
       return false;
     }
 
-    this.lastTriggerTime = Date.now();
+    // Strict Anti-Collision & 1-Ad-Only Lock
+    const now = Date.now();
+    if (now < this.adLockUntil) {
+      return false;
+    }
+    this.adLockUntil = now + 2500;
+    this.lastTriggerTime = now;
 
     // Increment source-specific interaction count
     if (source === 'poster') this.clickStats.posterClicks++;
@@ -297,17 +315,29 @@ class AdService {
 
     const directLink = this.getActiveDirectLink();
     const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
+    const inApk = this.isApkEnvironment();
 
     try {
-      // On mobile/APK, open without 'noopener' so we retain the window reference to cut/close it
-      const newWin = isMobile ? window.open(directLink, "_blank") : window.open(directLink, "_blank", "noopener,noreferrer");
-      if (newWin) {
-        this.lastOpenedAdWindow = newWin;
+      if (inApk) {
+        // Inside APK: In-App Ad viewer displays the ad with 2-3s countdown & Skip button
+        this.notifyAdTriggered('Adsterra', source, directLink, null, true);
+        return true;
+      }
+
+      // Single window open on Mobile Browser / Desktop (strictly 1 ad, never duplicate!)
+      let newWin: Window | null = null;
+      try {
+        newWin = isMobile ? window.open(directLink, "_blank") : window.open(directLink, "_blank", "noopener,noreferrer");
+        if (newWin) {
+          this.lastOpenedAdWindow = newWin;
+        }
+      } catch (openErr) {
+        newWin = null;
       }
       this.notifyAdTriggered('Adsterra', source, directLink, newWin, isMobile);
 
-      if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
-        // Fallback for browsers with strict pop-up constraints
+      // Only if window.open was completely blocked (returned null), fallback to single link click
+      if (!newWin) {
         const a = document.createElement("a");
         a.href = directLink;
         a.target = "_blank";
@@ -318,20 +348,9 @@ class AdService {
       }
       return true;
     } catch (err) {
-      console.warn("AdService: window.open fallback triggered:", err);
-      try {
-        const a = document.createElement("a");
-        a.href = directLink;
-        a.target = "_blank";
-        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return true;
-      } catch (innerErr) {
-        console.error("AdService: All delivery methods failed:", innerErr);
-        return false;
-      }
+      console.warn("AdService: Adsterra window.open fallback:", err);
+      this.notifyAdTriggered('Adsterra', source, directLink, null, isMobile);
+      return false;
     }
   }
 
@@ -348,28 +367,45 @@ class AdService {
       return false;
     }
 
-    const now = Date.now();
-    const threshold = force ? 300 : 3500;
-    if (!force && now - this.lastTriggerTime < threshold) {
-      return false;
+    if (e && e.stopPropagation) {
+      e.stopPropagation();
     }
 
+    const now = Date.now();
+    if (!force && now < this.adLockUntil) {
+      return false;
+    }
+    this.adLockUntil = now + 2500;
     this.lastTriggerTime = now;
+
     if (source === 'download_button' || source === 'episode_button') {
       this.clickStats.mediatorClicks++;
     }
 
     const directLink = this.getActiveDirectLink();
     const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
+    const inApk = this.isApkEnvironment();
 
     try {
-      const newWin = isMobile ? window.open(directLink, "_blank") : window.open(directLink, "_blank", "noopener,noreferrer");
-      if (newWin) {
-        this.lastOpenedAdWindow = newWin;
+      if (inApk) {
+        // Inside APK: In-App Ad viewer handles the ad with 2-3s countdown & Skip button
+        this.notifyAdTriggered('Adsterra', source, directLink, null, true);
+        return true;
+      }
+
+      let newWin: Window | null = null;
+      try {
+        newWin = isMobile ? window.open(directLink, "_blank") : window.open(directLink, "_blank", "noopener,noreferrer");
+        if (newWin) {
+          this.lastOpenedAdWindow = newWin;
+        }
+      } catch (openErr) {
+        newWin = null;
       }
       this.notifyAdTriggered('Adsterra', source, directLink, newWin, isMobile);
 
-      if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
+      // Only if window.open was completely blocked (returned null), fallback to single link click
+      if (!newWin) {
         const a = document.createElement("a");
         a.href = directLink;
         a.target = "_blank";
@@ -380,19 +416,9 @@ class AdService {
       }
       return true;
     } catch (err) {
-      console.warn("AdService: Adsterra direct link fallback triggered:", err);
-      try {
-        const a = document.createElement("a");
-        a.href = directLink;
-        a.target = "_blank";
-        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return true;
-      } catch (inner) {
-        return false;
-      }
+      console.warn("AdService: Adsterra direct link fallback:", err);
+      this.notifyAdTriggered('Adsterra', source, directLink, null, isMobile);
+      return false;
     }
   }
 
@@ -419,19 +445,44 @@ class AdService {
       return false;
     }
 
-    const monetagUrl = this.getActiveMonetagLink();
-    this.lastMonetagTriggerTime = Date.now();
+    if (e && e.stopPropagation) {
+      e.stopPropagation();
+    }
+
+    const now = Date.now();
+    if (now < this.adLockUntil) {
+      return false;
+    }
+    this.adLockUntil = now + 2500;
+    this.lastMonetagTriggerTime = now;
     this.clickStats.monetagClicks++;
 
+    const monetagUrl = this.getActiveMonetagLink();
+    const inApk = this.isApkEnvironment();
+
     try {
+      if (inApk) {
+        // Inside APK: In-App Ad viewer displays the ad with 2-3s countdown & Skip button
+        this.notifyAdTriggered('Monetag', source, monetagUrl, null, true);
+        return true;
+      }
+
       if (isMobile) {
-        // Mobile device: opens clean new tab with Monetag link (without noopener so it can be cut/closed)
-        const newWin = window.open(monetagUrl, "_blank");
-        if (newWin) {
-          this.lastOpenedAdWindow = newWin;
+        // Mobile device: opens strictly 1 clean tab with Monetag link
+        let newWin: Window | null = null;
+        try {
+          newWin = window.open(monetagUrl, "_blank");
+          if (newWin) {
+            this.lastOpenedAdWindow = newWin;
+          }
+        } catch (openErr) {
+          newWin = null;
         }
+
         this.notifyAdTriggered('Monetag', source, monetagUrl, newWin, true);
-        if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
+
+        // Only fallback if window.open was completely blocked
+        if (!newWin) {
           const a = document.createElement("a");
           a.href = monetagUrl;
           a.target = "_blank";
@@ -442,13 +493,16 @@ class AdService {
         }
       } else {
         // Laptop / PC Desktop: opens Monetag tab / popunder
-        const newWin = window.open(monetagUrl, "_blank", "noopener,noreferrer");
+        let newWin: Window | null = null;
+        try {
+          newWin = window.open(monetagUrl, "_blank", "noopener,noreferrer");
+        } catch (openErr) {
+          newWin = null;
+        }
+
         this.notifyAdTriggered('Monetag', source, monetagUrl, newWin, false);
-        if (newWin) {
-          try {
-            window.focus();
-          } catch {}
-        } else {
+
+        if (!newWin) {
           const a = document.createElement("a");
           a.href = monetagUrl;
           a.target = "_blank";
@@ -461,18 +515,8 @@ class AdService {
       return true;
     } catch (err) {
       console.warn("AdService: Monetag direct trigger fallback:", err);
-      try {
-        const a = document.createElement("a");
-        a.href = monetagUrl;
-        a.target = "_blank";
-        a.rel = isMobile ? "noreferrer" : "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return true;
-      } catch {
-        return false;
-      }
+      this.notifyAdTriggered('Monetag', source, monetagUrl, null, isMobile);
+      return false;
     }
   }
 
@@ -493,6 +537,10 @@ class AdService {
       return false;
     }
 
+    if (e && e.stopPropagation) {
+      e.stopPropagation();
+    }
+
     // 1. Verify Event Authenticity
     if (this.config.enableLegitimateCheck && e) {
       const native = e.nativeEvent || e;
@@ -504,30 +552,36 @@ class AdService {
 
     // 2. Anti-collision & Cadence check:
     const now = Date.now();
-    const minInterval = force ? 100 : Math.min(this.config.monetagClickIntervalMs || 1500, 1500);
-    if (now - this.lastMonetagTriggerTime < minInterval) {
+    if (!force && now < this.adLockUntil) {
       return false;
     }
-
+    this.adLockUntil = now + 2500;
     this.lastMonetagTriggerTime = now;
     this.clickStats.monetagClicks++;
 
     const monetagUrl = this.getActiveMonetagLink();
     const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768);
+    const inApk = this.isApkEnvironment();
 
     try {
-      const newWin = isMobile ? window.open(monetagUrl, "_blank") : window.open(monetagUrl, "_blank", "noopener,noreferrer");
-      if (newWin) {
-        this.lastOpenedAdWindow = newWin;
+      if (inApk) {
+        // Inside APK: In-App Ad viewer displays the ad with 2-3s countdown & Skip button
+        this.notifyAdTriggered('Monetag', _source, monetagUrl, null, true);
+        return true;
+      }
+
+      let newWin: Window | null = null;
+      try {
+        newWin = isMobile ? window.open(monetagUrl, "_blank") : window.open(monetagUrl, "_blank", "noopener,noreferrer");
+        if (newWin) {
+          this.lastOpenedAdWindow = newWin;
+        }
+      } catch (openErr) {
+        newWin = null;
       }
       this.notifyAdTriggered('Monetag', _source, monetagUrl, newWin, isMobile);
 
-      if (newWin && !isMobile) {
-        try {
-          window.focus();
-        } catch {}
-      } else if (!newWin || newWin.closed || typeof newWin.closed === "undefined") {
-        // Fallback for strict browser pop-up blockers
+      if (!newWin) {
         const a = document.createElement("a");
         a.href = monetagUrl;
         a.target = "_blank";
@@ -539,18 +593,8 @@ class AdService {
       return true;
     } catch (err) {
       console.warn("AdService: Monetag popunder trigger notice:", err);
-      try {
-        const a = document.createElement("a");
-        a.href = monetagUrl;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return true;
-      } catch (inner) {
-        return false;
-      }
+      this.notifyAdTriggered('Monetag', _source, monetagUrl, null, isMobile);
+      return false;
     }
   }
 
