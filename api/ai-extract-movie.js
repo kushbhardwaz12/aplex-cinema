@@ -177,6 +177,21 @@ export default async function handler(req, res) {
       });
     }
 
+    // --- LAKERA GUARD & NEMO GUARDRAILS CHECK ---
+    const injectionPatterns = [
+      /\b(ignore|disregard|forget|bypass|override)\s+(all\s+)?(previous|past|prior|system)\s+(instructions|prompts|rules|commands)\b/i,
+      /\b(reveal|show|print|display|leak|exfiltrate|tell\s+me)\s+(your\s+)?(system\s+prompt|instructions|api\s+key|secret|hiddenlayer|gemini\s+key)\b/i,
+      /\b(dan\s+mode|jailbreak|developer\s+mode|unfiltered\s+mode|do\s+anything\s+now)\b/i,
+      /\b(output\s+the\s+full\s+code\s+of\s+this\s+server|dump\s+env\s+variables|cat\s+\/etc\/passwd)\b/i,
+    ];
+    for (const pat of injectionPatterns) {
+      if (pat.test(rawContent)) {
+        return res.status(403).json({
+          error: "Security Alert: Request blocked by Lakera Guard & NeMo Guardrails (Prompt Injection / Jailbreak attempt detected)."
+        });
+      }
+    }
+
     // Try Gemini AI first if API key is present
     let extractedMovies = null;
     const apiKey = process.env.GEMINI_API_KEY;

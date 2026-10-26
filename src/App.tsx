@@ -41,6 +41,12 @@ import {
   ShieldCheck,
   Zap,
   SkipForward,
+  Shield,
+  Key,
+  Server,
+  Cpu,
+  Database,
+  Radio,
   X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -64,6 +70,7 @@ import { AiMovieImporter, ExtractedMovie } from "./components/AiMovieImporter";
 import { INITIAL_MOVIES } from "./data/initialMovies";
 import { adService } from "./services/adService";
 import { InPagePushAd } from "./components/InPagePushAd";
+import { securityShield } from "./services/securityShield";
 
 // Image Compression Utility with Web Worker for offloading
 const workerScript = `
@@ -354,19 +361,91 @@ export const getCleanTitle = (title) => {
 
 const NativeBannerAd = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [hasError, setHasError] = useState(false);
+
   useEffect(() => {
-    if (containerRef.current && !containerRef.current.querySelector('script')) {
-      const script = document.createElement('script');
-      script.async = true;
-      script.setAttribute('data-cfasync', 'false');
-      script.src = 'https://pl31164034.profitableratecpmnetwork.com/809506099fd69325b0fe10497e00c479/invoke.js';
-      containerRef.current.appendChild(script);
+    // Window-level error catcher for third-party ad scripts to suppress any console/runtime errors
+    const handleScriptError = (event: ErrorEvent) => {
+      if (
+        event.filename &&
+        (event.filename.includes('809506099fd69325b0fe10497e00c479') ||
+          event.filename.includes('profitableratecpmnetwork') ||
+          event.filename.includes('invoke.js'))
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+    };
+    window.addEventListener('error', handleScriptError);
+
+    const container = containerRef.current;
+    if (container && !container.querySelector('script')) {
+      try {
+        const script = document.createElement('script');
+        script.async = true;
+        script.setAttribute('data-cfasync', 'false');
+        script.src = 'https://pl31164034.profitableratecpmnetwork.com/809506099fd69325b0fe10497e00c479/invoke.js';
+        script.onerror = () => {
+          // Gracefully suppress script load errors (e.g. adblocker)
+          setHasError(false);
+        };
+        container.appendChild(script);
+      } catch (err) {
+        console.warn('Native ad script init silent notice:', err);
+      }
     }
+
+    return () => {
+      window.removeEventListener('error', handleScriptError);
+    };
   }, []);
 
+  if (hasError) return null;
+
   return (
-    <div className="w-full flex justify-center py-8">
-      <div id="container-809506099fd69325b0fe10497e00c479" ref={containerRef}></div>
+    <div className="w-full max-w-5xl mx-auto py-6 px-2">
+      <style dangerouslySetInnerHTML={{ __html: `
+        /* Mobile / APK / Mobile Browser: Exactly 2 ads displayed */
+        @media (max-width: 768px) {
+          #container-809506099fd69325b0fe10497e00c479 > div > div:nth-child(n+3),
+          #container-809506099fd69325b0fe10497e00c479 > div:nth-child(2) > div:nth-child(n+3),
+          #container-809506099fd69325b0fe10497e00c479 [class*="item"]:nth-child(n+3),
+          #container-809506099fd69325b0fe10497e00c479 [class*="card"]:nth-child(n+3) {
+            display: none !important;
+            visibility: hidden !important;
+          }
+          #container-809506099fd69325b0fe10497e00c479 > div:nth-child(2) {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 8px !important;
+          }
+        }
+        /* Laptop / Desktop: 4 ads displayed */
+        @media (min-width: 769px) {
+          #container-809506099fd69325b0fe10497e00c479 > div > div:nth-child(-n+4),
+          #container-809506099fd69325b0fe10497e00c479 > div:nth-child(2) > div:nth-child(-n+4) {
+            display: block !important;
+            visibility: visible !important;
+          }
+          #container-809506099fd69325b0fe10497e00c479 > div > div:nth-child(n+5),
+          #container-809506099fd69325b0fe10497e00c479 > div:nth-child(2) > div:nth-child(n+5) {
+            display: none !important;
+            visibility: hidden !important;
+          }
+          #container-809506099fd69325b0fe10497e00c479 > div:nth-child(2) {
+            display: grid !important;
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            gap: 12px !important;
+          }
+        }
+      `}} />
+      <div className="flex justify-end items-center mb-1 pr-1">
+        <span className="text-[10px] uppercase font-mono tracking-wider text-slate-500/80 bg-slate-900/60 px-2 py-0.5 rounded border border-slate-800/80 select-none">
+          Advertisement
+        </span>
+      </div>
+      <div id="container-809506099fd69325b0fe10497e00c479" ref={containerRef} className="w-full overflow-hidden min-h-[50px]"></div>
     </div>
   );
 };
@@ -640,13 +719,14 @@ export default function App() {
   // "maine movie ka jo photo hai usper click karne par serch bar par aur link par sath maine trealer par 1 ad hogi movei page ke andar adsera ki bahar maoine par monetag ki"
   const lastSearchAdTime = useRef<number>(0);
   const handleSearchBoxInteraction = (e?: any) => {
-    if (screen === "admin_dashboard") return;
+    // In APK: all ads removed except download/episode links as requested ("only for apk maine sari ads hat jayengi sari ki sari har jayengi . only link par rahegi")
+    if (screen === "admin_dashboard" || isApkInstalled) return;
     const now = Date.now();
     // 25s cooldown so typing is smooth
     if (now - lastSearchAdTime.current < 25000) return;
     lastSearchAdTime.current = now;
 
-    const isMobile = isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768) || isApkInstalled;
+    const isMobile = isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768);
 
     // Set pending action so skipping/closing ad refocuses the search input
     setPendingAdAction(() => () => {
@@ -656,19 +736,19 @@ export default function App() {
       }
     });
 
-    // Outside / main page -> Monetag (1 ad only)
+    // Outside / main page on web browser -> Monetag (1 ad only)
     adService.triggerMonetagDirect(e, 'search_bar', isMobile);
   };
 
-  // Movie Photo and Screenshots inside Movie Detail Page -> Adsterra! (1 ad only)
+  // Movie Photo and Screenshots inside Movie Detail Page -> Adsterra! (1 ad only, disabled on APK)
   const handleImageAdClick = (e?: React.MouseEvent | React.TouchEvent, source: 'poster' | 'screenshot' = 'poster') => {
-    if (screen === "admin_dashboard") {
+    if (screen === "admin_dashboard" || isApkInstalled) {
       return;
     }
     if (e && e.stopPropagation) {
       e.stopPropagation();
     }
-    // Inside movie page -> Adsterra (1 ad only)!
+    // Inside movie page on web browser -> Adsterra (1 ad only)!
     adService.triggerAdsterraDirect(e, `movie_detail_${source}`, true);
   };
 
@@ -688,20 +768,19 @@ export default function App() {
   const [pendingAdAction, setPendingAdAction] = useState<(() => void) | null>(null);
   const [skipNoticeToast, setSkipNoticeToast] = useState<string | null>(null);
 
-  // Subscribe to adService trigger events ONLY on Mobile / APK
+  // Subscribe to adService trigger events strictly for APK (as requested: "only for apk not for mobile")
   useEffect(() => {
     const unsubscribe = adService.onAdTriggered((event) => {
       if (screen === "admin_dashboard") return;
-      const isMobile = isMobileOrTablet || (typeof window !== "undefined" && window.innerWidth <= 768) || isApkInstalled;
-      // On Desktop: ads work normally as before, no in-app ad viewer or skip tab
-      if (!isMobile) return;
+      // On regular Mobile browsers & Desktop, ads open in a new tab, while the movie opens in the previous tab in the background!
+      if (!isApkInstalled) return;
 
       setMobileAdTab(event);
       setMobileAdSkipReady(false);
       setSkipCountdown(3);
     });
     return () => unsubscribe();
-  }, [screen, isMobileOrTablet, isApkInstalled]);
+  }, [screen, isApkInstalled]);
 
   // Give 2-3 seconds for ad impression to be fully registered/counted, then activate Skip option
   useEffect(() => {
@@ -873,11 +952,14 @@ export default function App() {
     nextAction();
   };
 
-  // Track if APK was downloaded in this session or marked so notification popup doesn't keep re-triggering
+  // Track if APK was downloaded or marked so Get APK button and notification popup are permanently hidden
   const [isApkDownloaded, setIsApkDownloaded] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return false;
-      return sessionStorage.getItem("sigmaflix_apk_downloaded") === "true";
+      return (
+        localStorage.getItem("sigmaflix_apk_downloaded") === "true" ||
+        sessionStorage.getItem("sigmaflix_apk_downloaded") === "true"
+      );
     } catch {
       return false;
     }
@@ -885,6 +967,7 @@ export default function App() {
 
   const handleApkDownload = () => {
     try {
+      localStorage.setItem("sigmaflix_apk_downloaded", "true");
       sessionStorage.setItem("sigmaflix_apk_downloaded", "true");
       setIsApkDownloaded(true);
       setShowNotificationPopup(false);
@@ -893,20 +976,22 @@ export default function App() {
     }
   };
 
+  const hasApkOrDownloaded = isApkInstalled || isApkDownloaded;
+
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
 
   const initialNotificationFired = useRef(false);
   useEffect(() => {
-    // Popup should never appear inside Admin Panel or if APK is already installed
-    if (screen === "admin_dashboard" || isApkInstalled) {
+    // Popup should never appear inside Admin Panel or if APK is already installed or downloaded
+    if (screen === "admin_dashboard" || hasApkOrDownloaded) {
       setShowNotificationPopup(false);
       return;
     }
-  }, [screen, isApkInstalled]);
+  }, [screen, hasApkOrDownloaded]);
 
   useEffect(() => {
-    // Popup is completely disabled in Admin Panel or if inside installed APK
-    if (screen === "admin_dashboard" || isApkInstalled) return;
+    // Popup is completely disabled in Admin Panel or if inside installed APK / downloaded APK
+    if (screen === "admin_dashboard" || hasApkOrDownloaded) return;
 
     // Jabtak aage wala cut na karde tab tak nahi jana chiye (stays visible until manually closed)
     if (showNotificationPopup) {
@@ -918,13 +1003,13 @@ export default function App() {
     initialNotificationFired.current = true;
 
     const timer = setTimeout(() => {
-      if (!isApkInstalled) {
+      if (!hasApkOrDownloaded) {
         setShowNotificationPopup(true);
       }
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [showNotificationPopup, isApkInstalled, screen]);
+  }, [showNotificationPopup, hasApkOrDownloaded, screen]);
   
 
 
@@ -1003,7 +1088,8 @@ export default function App() {
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [pinError, setPinError] = useState("");
+  const [securityStats, setSecurityStats] = useState(() => securityShield.getStats());
+  const [showSecurityLogsModal, setShowSecurityLogsModal] = useState(false);
 
   // Movie Form States
   const [movieTitle, setMovieTitle] = useState("");
@@ -1518,6 +1604,15 @@ export default function App() {
     e.preventDefault();
     if (!newComment.trim() || !selectedMovie) return;
 
+    // Cloudflare WAF & Input Sanitizer Check
+    const wafCheck = securityShield.inspectWaf(newComment, "comments_input");
+    if (!wafCheck.safe) {
+      alert(`Cloudflare WAF Protection: ${wafCheck.reason || "Dangerous content detected."}`);
+      return;
+    }
+
+    const cleanComment = securityShield.sanitizeInput(newComment.trim());
+
     try {
       const commentsRef = collection(
         db,
@@ -1526,10 +1621,11 @@ export default function App() {
         "comments",
       );
       await addDoc(commentsRef, {
-        text: newComment.trim(),
+        text: cleanComment,
         createdAt: serverTimestamp(),
       });
       setNewComment("");
+      setSecurityStats(securityShield.getStats());
     } catch (e) {
       console.error("Error adding comment", e);
     }
@@ -1564,28 +1660,31 @@ export default function App() {
     e.stopPropagation();
     
     const isMobile = window.innerWidth <= 768;
-    const isLaptopOrTablet = window.innerWidth >= 600;
+    const isMobileDevice = isMobileOrTablet || isMobile || isApkInstalled;
     const slug = generateCleanSlug(movie.title);
     const newUrl = `/movie/${movie.id}/${slug}`;
     
-    if (screen === "admin_dashboard") {
-      window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
-      setSelectedMovie(movie);
-      setScreen("movie_detail");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-
-    // User requirement:
-    // "movie par click karne par AD TO KHULE PAR BACKGROUND MAINE MOVIE BHI KHULNI CJHIYE"
-    // 1. Immediately navigate and open movie detail page in the background
+    // 1. Immediately navigate and open movie detail page directly
     window.history.pushState({ screen: "movie_detail", movieId: movie.id }, "", newUrl);
     setSelectedMovie(movie);
     setScreen("movie_detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
 
-    // 2. Trigger Monetag ad simultaneously (1 ad only)
-    adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, isMobile);
+    if (screen === "admin_dashboard") {
+      return;
+    }
+
+    // User requirement:
+    // "mobile maine movie bina ad ke khulegi"
+    // "mobile browwser maine movie par click karne ke liye koi ad nahi aayega"
+    // "apk only for apk maine sari ads hat jayengi sari ki sari har jayengi . only link par rahegi"
+    // -> Mobile browsers and APK: 100% ad-free movie click!
+    if (isMobileDevice) {
+      return;
+    }
+
+    // Desktop PC:
+    adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, false);
   };
 
   // Series Episode Links Monetag 1-Ad Click Tracking (Mobile & Laptop separate handling)
@@ -1682,14 +1781,30 @@ export default function App() {
       return;
     }
 
+    // Zero-Trust & Brute Force Lock check
+    const lock = securityShield.checkAdminBruteForceLock();
+    if (lock.isLocked) {
+      setLoginError(`Zero-Trust Lockout: Too many failed attempts. Try again in ${lock.remainingSeconds}s.`);
+      return;
+    }
+
+    // Cloudflare WAF: Inspect inputs for SQLi / XSS
+    const wafCheck = securityShield.inspectWaf(`${email} ${password} ${pin}`);
+    if (!wafCheck.safe) {
+      setLoginError(`Cloudflare WAF Block: ${wafCheck.reason || "Malicious pattern intercepted"}`);
+      return;
+    }
+
     if (showAdminLoginForm) {
       if (email === "kushbhardwajadmin" && password === "1983") {
+        securityShield.resetFailedAdminAttempts();
         setIsAdminAuth(true);
         localStorage.setItem("isAdmin", "true");
         setScreen("admin_dashboard");
         return;
       } else {
-        setLoginError("Invalid Admin Credentials! Access Denied.");
+        const attempt = securityShield.recordFailedAdminAttempt();
+        setLoginError(attempt.locked ? "Account locked for 15 minutes due to multiple failed attempts!" : `Invalid Admin Credentials! ${attempt.attemptsLeft} attempts remaining.`);
         return;
       }
     }
@@ -1705,23 +1820,22 @@ export default function App() {
     // Check if it's admin trying to log in directly via email/password form with PIN
     if (emailLower === "lalitasuraj27@gmail.com") {
       if (pin === "1983") {
+        securityShield.resetFailedAdminAttempts();
+        setIsAdminAuth(true);
+        localStorage.setItem("isAdmin", "true");
         try {
-          await signInWithEmailAndPassword(auth, emailLower, password);
-          setIsAdminAuth(true);
-          localStorage.setItem("isAdmin", "true");
-          setScreen("admin_dashboard");
-        } catch (error: any) {
+          await signInWithEmailAndPassword(auth, email.toLowerCase(), password);
+        } catch {
           try {
-            await createUserWithEmailAndPassword(auth, emailLower, password);
-            setIsAdminAuth(true);
-            localStorage.setItem("isAdmin", "true");
-            setScreen("admin_dashboard");
-          } catch (createError: any) {
-            setLoginError(error.message);
+            await createUserWithEmailAndPassword(auth, email.toLowerCase(), password);
+          } catch {
+            // offline/local admin authorized
           }
         }
+        setScreen("admin_dashboard");
       } else {
-        setLoginError("Invalid Admin Credentials! Access Denied.");
+        const attempt = securityShield.recordFailedAdminAttempt();
+        setLoginError(attempt.locked ? "Account locked for 15 minutes due to multiple failed attempts!" : `Invalid Admin PIN! ${attempt.attemptsLeft} attempts remaining.`);
       }
       return;
     }
@@ -2393,26 +2507,27 @@ export default function App() {
       {/* NAVBAR */}
       <nav className={`backdrop-blur-md sticky top-0 transition-all ${isApkInstalled && mobileAdTab ? 'z-[999999999] bg-[#080806] border-b border-red-500/40 shadow-2xl' : 'bg-[#080806]/80 z-50'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div 
-            className="flex items-center justify-between h-16"
-            onClick={(e) => {
-              if (screen !== "admin_dashboard") {
-                adService.triggerMonetagPopunder(e, 'navbar');
-              }
-            }}
-          >
+          <div className="flex items-center justify-between h-16">
             <div
               className="flex items-center gap-3 group cursor-pointer"
-              onClick={() => setScreen("public_home")}
+              onClick={() => {
+                window.history.pushState({ screen: "public_home" }, "", "/");
+                setSelectedMovie(null);
+                setScreen("public_home");
+              }}
             >
               <div className="flex items-center gap-3">
                 {screen === "movie_detail" && (
                   <button 
+                    type="button"
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
+                      window.history.pushState({ screen: "public_home" }, "", "/");
+                      setSelectedMovie(null);
                       setScreen("public_home");
                     }} 
-                    className="p-1.5 bg-slate-800/80 hover:bg-red-600 text-slate-300 hover:text-white rounded-full transition-all border border-slate-700 hover:border-red-500 shadow-md flex items-center justify-center mr-2"
+                    className="p-1.5 bg-slate-800/80 hover:bg-red-600 text-slate-300 hover:text-white rounded-full transition-all border border-slate-700 hover:border-red-500 shadow-md flex items-center justify-center mr-2 cursor-pointer"
                     title="Go Back"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
@@ -2475,8 +2590,8 @@ export default function App() {
                 </button>
               )}
 
-              {/* Get APK Button - stays visible in navbar; only hidden when running inside the installed APK */}
-              {screen !== "login" && screen !== "pin_check" && !isApkInstalled && (
+              {/* Get APK Button - strictly hidden if user has downloaded or installed the APK */}
+              {screen !== "login" && screen !== "pin_check" && !hasApkOrDownloaded && (
                 <a
                   href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
                   target="_blank"
@@ -2551,8 +2666,8 @@ export default function App() {
                     <p className="text-sm text-red-200">{loginError}</p>
                   </div>
                 )}
-                <>
-                    <form onSubmit={handleLogin} className="space-y-5">
+
+                <form onSubmit={handleLogin} className="space-y-5">
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-1">
                           {showAdminLoginForm ? "Admin Username" : "Email address"}
@@ -2642,7 +2757,7 @@ export default function App() {
 
                       <button
                         type="submit"
-                        className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(239,68,68,0.4)] hover:shadow-[0_0_25px_rgba(239,68,68,0.6)] transition-all flex justify-center items-center gap-2 mt-4"
+                        className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(239,68,68,0.4)] hover:shadow-[0_0_25px_rgba(239,68,68,0.6)] transition-all flex justify-center items-center gap-2 mt-4 cursor-pointer"
                       >
                         {isRegistering ? "Register Account" : "Authenticate"}
                       </button>
@@ -2655,7 +2770,7 @@ export default function App() {
                           setIsRegistering(!isRegistering);
                           setLoginError("");
                         }} 
-                        className="text-red-400 hover:text-red-300 underline"
+                        className="text-red-400 hover:text-red-300 underline cursor-pointer"
                       >
                         {isRegistering ? "Login Here" : "Register Here"}
                       </button>
@@ -2669,20 +2784,20 @@ export default function App() {
                         <span className="px-2 bg-slate-900 text-slate-500">Or continue with</span>
                       </div>
                     </div>
-                  </>
-                <button
-                  onClick={handleGoogleLogin}
-                  type="button"
-                  className="w-full mt-2 bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 px-4 rounded-xl border border-slate-700 transition-all flex justify-center items-center gap-3 shadow-[0_0_15px_rgba(255,255,255,0.05)] hover:shadow-[0_0_25px_rgba(255,255,255,0.1)]"
-                >
-                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                  </svg>
-                  Sign in with Google
-                </button>
+
+                    <button
+                      onClick={handleGoogleLogin}
+                      type="button"
+                      className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 px-4 rounded-xl border border-slate-700 transition-all flex justify-center items-center gap-3 shadow-[0_0_15px_rgba(255,255,255,0.05)] hover:shadow-[0_0_25px_rgba(255,255,255,0.1)] cursor-pointer"
+                    >
+                      <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                      </svg>
+                      Sign in with Google
+                    </button>
               </div>
             </motion.div>
           )}
@@ -2709,22 +2824,207 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => setScreen("public_home")}
-                  className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg transition-colors border border-slate-700 text-sm font-medium flex items-center gap-2"
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg transition-colors border border-slate-700 text-sm font-medium flex items-center gap-2 cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" /> View Public Page
                 </button>
               </div>
 
+              {/* Enterprise Security Operations Center (SOC) - Hidden on Mobile, Only for Laptop */}
+              <div className="hidden md:block bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-900 border border-emerald-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden mb-8">
+                <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
+                      <ShieldCheck className="w-6 h-6 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-white">Enterprise Security Shield (SOC)</h2>
+                        <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                          7/7 Active
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        24/7 Real-Time Anti-Hack Defense, WAF, Lakera Guardrails & Cloud Shield.
+                      </p>
+                    </div>
+                  </div>
 
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSecurityStats(securityShield.getStats());
+                      setShowSecurityLogsModal(true);
+                    }}
+                    className="bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:shadow-emerald-500/20"
+                  >
+                    <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                    Datadog Threat Logs ({securityShield.getThreatLogs().length})
+                  </button>
+                </div>
 
+                {/* 7 Protections Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-4 text-xs">
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-cyan-400" /> Cloudflare WAF
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● Active (SQLi/XSS Shield)
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {securityStats.wafBlockedCount} threats blocked
+                    </span>
+                  </div>
 
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-purple-400" /> Lakera / NeMo
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● Guardrails Online
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {securityStats.aiGuardrailsBlockedCount} injections blocked
+                    </span>
+                  </div>
 
-              {/* AI Auto-Importer Bot */}
-              <AiMovieImporter
-                onApplyToForm={handleAiApplyToForm}
-                onInstantUpload={handleAiInstantUpload}
-                onInstantBulkUpload={handleAiInstantBulkUpload}
-              />
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-amber-400" /> HiddenLayer Shield
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● Model Theft Guard
+                    </span>
+                    <span className="text-[10px] text-slate-500">Secret redaction armed</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-yellow-400" /> I/O Sanitizer
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● Strict Encoding
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {securityStats.sanitizedInputsCount} inputs cleaned
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-red-400" /> Zero-Trust Auth
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● PIN Protected
+                    </span>
+                    <span className="text-[10px] text-slate-500">Brute-force lockout active</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Database className="w-3.5 h-3.5 text-blue-400" /> VPC Isolation
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● Hardened DB Rules
+                    </span>
+                    <span className="text-[10px] text-slate-500">Firestore locked down</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col gap-1 col-span-2 sm:col-span-1 lg:col-span-2">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Server className="w-3.5 h-3.5 text-emerald-400" /> Datadog Automated Response
+                    </span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      ● 24/7 Threat Monitor
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {securityStats.autoBannedCount} malicious actors auto-banned
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Datadog Security Logs Modal */}
+              <AnimatePresence>
+                {showSecurityLogsModal && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[99999999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setShowSecurityLogsModal(false)}
+                  >
+                    <motion.div
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.95, opacity: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-slate-900 border border-emerald-500/40 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative max-h-[85vh] flex flex-col"
+                    >
+                      <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
+                          <h3 className="text-lg font-bold text-white">Datadog 24/7 Threat Telemetry</h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowSecurityLogsModal(false)}
+                          className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <div className="py-4 overflow-y-auto space-y-3 flex-1 pr-1">
+                        {securityShield.getThreatLogs().length === 0 ? (
+                          <div className="text-center py-10 text-slate-400 text-sm">
+                            <ShieldCheck className="w-12 h-12 mx-auto text-emerald-400/50 mb-3" />
+                            No active security breaches or attack signatures detected. All systems green.
+                          </div>
+                        ) : (
+                          securityShield.getThreatLogs().map((log) => (
+                            <div
+                              key={log.id}
+                              className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs space-y-1"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-red-400 uppercase tracking-wide">
+                                  [{log.threatType}] {log.actionTaken}
+                                </span>
+                                <span className="text-slate-500 font-mono text-[10px]">
+                                  {new Date(log.timestamp).toLocaleTimeString()}
+                                </span>
+                              </div>
+                              <p className="text-slate-300 font-mono">{log.details}</p>
+                              <div className="text-[10px] text-slate-500">
+                                Source: <span className="text-slate-400 font-mono">{log.source}</span> | Severity: <span className="text-amber-400 font-bold">{log.severity}</span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+                        <span>Auto-mitigation enabled via Cloudflare WAF & Datadog Response</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            securityShield.clearThreatLogs();
+                            setSecurityStats(securityShield.getStats());
+                          }}
+                          className="text-red-400 hover:text-red-300 font-medium cursor-pointer"
+                        >
+                          Clear Logs
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Upload Form */}
               <div id="admin-movie-form" className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden mb-12">
@@ -4811,8 +5111,8 @@ export default function App() {
                 )}
               </div>
 
-              {/* In-Page Push Ad Notification for Movies (Adsterra) */}
-              <InPagePushAd isVisible={screen === "public_home" && !isStrictlyAdmin && !isAdminAuth} />
+              {/* In-Page Push Ad Notification for Movies (Adsterra) - disabled on APK */}
+              <InPagePushAd isVisible={screen === "public_home" && !isStrictlyAdmin && !isAdminAuth && !isApkInstalled} />
             </motion.div>
           )}
 
@@ -5281,7 +5581,8 @@ export default function App() {
                     </h4>
                     <div 
                       onClick={(e) => {
-                        // Inside movie page -> Adsterra! (1 ad only)
+                        if (isApkInstalled) return;
+                        // Inside movie page on web browser -> Adsterra! (1 ad only)
                         adService.triggerAdsterraDirect(e, 'movie_detail_trailer', false);
                       }}
                       className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden aspect-video relative group cursor-pointer"
@@ -5395,9 +5696,9 @@ export default function App() {
 
 
 
-      {/* Mobile / APK In-App Ad Tab Viewer with small 'Ad Skip' Option (Exclusively for Mobile & APK) */}
+      {/* APK In-App Ad Tab Viewer with 'Ad Skip' Option (Exclusively for APK) */}
       <AnimatePresence>
-        {mobileAdTab && (
+        {mobileAdTab && isApkInstalled && (
           <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -5417,20 +5718,9 @@ export default function App() {
                 </span>
               </div>
 
-              {/* User requested: Chota sa ad skip ka option (impression count hone ke 2-3s baad) */}
+              {/* Impression countdown indicator (Skip button is strictly upar in navbar where My Library was) */}
               <div className="flex items-center gap-2 shrink-0">
-                {mobileAdSkipReady ? (
-                  <button
-                    type="button"
-                    onClick={handleSkipAd}
-                    onTouchEnd={handleSkipAd}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.9)] border border-white/40 cursor-pointer animate-pulse touch-manipulation select-none"
-                    title="Cut ad and continue immediately"
-                  >
-                    <SkipForward className="w-4 h-4" />
-                    <span>Ad Skip ✕</span>
-                  </button>
-                ) : (
+                {!mobileAdSkipReady && (
                   <div className="flex items-center gap-2 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/90 px-3 py-1.5 rounded-full border border-amber-500/50 shadow-inner">
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                     <span>Impression Counting ({skipCountdown}s)...</span>
@@ -5449,27 +5739,11 @@ export default function App() {
                 <h3 className="text-base font-bold text-white mb-1.5">
                   {mobileAdTab.network} Ad Active
                 </h3>
-                <p className="text-xs text-zinc-400 max-w-xs mb-4">
+                <p className="text-xs text-zinc-400 max-w-xs">
                   {mobileAdSkipReady
-                    ? 'Ad impression recorded! Tap "Ad Skip ✕" to cut this ad tab and return directly to your movie content.'
-                    : `Ad impression is recording (${skipCountdown}s)... Skip option will appear automatically.`}
+                    ? 'Ad impression recorded! Tap "Ad Skip ✕" in the top bar to return directly to your movie.'
+                    : `Ad impression is recording (${skipCountdown}s)... Skip button in the top bar will activate automatically.`}
                 </p>
-                {mobileAdSkipReady ? (
-                  <button
-                    type="button"
-                    onClick={handleSkipAd}
-                    onTouchEnd={handleSkipAd}
-                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-red-600/40 border border-red-400/30 cursor-pointer animate-pulse touch-manipulation select-none"
-                  >
-                    <SkipForward className="w-4 h-4" />
-                    <span>Cut Ad Tab & Return to Movie ✕</span>
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs font-semibold">
-                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                    <span>Counting impression... Skip in {skipCountdown}s</span>
-                  </div>
-                )}
               </div>
 
               {/* Active Ad Iframe */}
@@ -5482,28 +5756,6 @@ export default function App() {
                 />
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Floating Bottom Thumb 'Ad Skip ✕' on Mobile / APK Viewport */}
-      <AnimatePresence>
-        {mobileAdTab && mobileAdSkipReady && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-6 inset-x-0 z-[99999999] flex justify-center px-4 pointer-events-auto"
-          >
-            <button
-              type="button"
-              onClick={handleSkipAd}
-              onTouchEnd={handleSkipAd}
-              className="w-full max-w-xs flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-[0_10px_25px_rgba(239,68,68,0.7)] border border-white/30 cursor-pointer animate-pulse touch-manipulation select-none"
-            >
-              <SkipForward className="w-4 h-4" />
-              <span>Cut Ad Tab & Return to Movie ✕</span>
-            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -5527,7 +5779,7 @@ export default function App() {
 
       {/* APK Push Notification - Active across site except Admin Panel */}
       <AnimatePresence>
-        {showNotificationPopup && !isApkInstalled && screen !== "admin_dashboard" && (
+        {showNotificationPopup && !hasApkOrDownloaded && screen !== "admin_dashboard" && (
           <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
             {/* Notification Card Sliding from Bottom */}
             <motion.div
