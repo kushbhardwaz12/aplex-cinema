@@ -611,13 +611,24 @@ export default function App() {
   const isMobileOrTablet = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isDesktop = !isMobileOrTablet;
 
-  // Check if running inside installed APK environment (standalone PWA or Android APK WebView wrapper)
+  // Check if running inside installed APK environment (standalone PWA or Android APK WebView wrapper like e-droid / AppCreator)
   const [isApkInstalled] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return false;
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
-      const isWebView = /wv|Android.*Version\/[0-9.]+/i.test(navigator.userAgent) || /SigmaFlix|Aplex/i.test(navigator.userAgent);
-      return isStandalone || isWebView;
+      const ua = navigator.userAgent || "";
+      const isStandalone = 
+        window.matchMedia("(display-mode: standalone)").matches || 
+        window.matchMedia("(display-mode: fullscreen)").matches ||
+        (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
+      const isWebView = 
+        /;\s*wv\b/i.test(ua) || 
+        /e-droid|app4185770|AppCreator24|SigmaFlixApp/i.test(ua) ||
+        Boolean((window as any).Android || (window as any).AndroidInterface || (window as any).JSInterface || (window as any).appCreator);
+      const isApkParam = 
+        window.location.search.includes("is_apk=1") || 
+        window.location.search.includes("apk=true") || 
+        window.location.hash === "#apk";
+      return Boolean(isStandalone || isWebView || isApkParam);
     } catch {
       return false;
     }
@@ -704,7 +715,7 @@ export default function App() {
     
     const timer = setTimeout(() => {
       const existingScript = document.getElementById('popunder-script');
-      if (isDesktop && !existingScript) {
+      if (!isApkInstalled && !existingScript) {
         const script = document.createElement('script');
         script.id = 'popunder-script';
         script.src = 'https://pl31063276.profitableratecpmnetwork.com/1c/92/c8/1c92c833d1b12d095d2f10c876c01465.js';
@@ -713,7 +724,7 @@ export default function App() {
       }
     }, 1000);
     return () => clearTimeout(timer);
-  }, [isDesktop, screen]);
+  }, [isApkInstalled, screen]);
 
   // User request:
   // "maine movie ka jo photo hai usper click karne par serch bar par aur link par sath maine trealer par 1 ad hogi movei page ke andar adsera ki bahar maoine par monetag ki"
@@ -764,34 +775,33 @@ export default function App() {
     url?: string;
   } | null>(null);
   const [mobileAdSkipReady, setMobileAdSkipReady] = useState(false);
-  const [skipCountdown, setSkipCountdown] = useState(3);
+  const [skipCountdown, setSkipCountdown] = useState(5);
   const [pendingAdAction, setPendingAdAction] = useState<(() => void) | null>(null);
   const [skipNoticeToast, setSkipNoticeToast] = useState<string | null>(null);
 
-  // Subscribe to adService trigger events strictly for APK (as requested: "only for apk not for mobile")
+  // Subscribe to adService trigger events for Mobile Browser & APK
   useEffect(() => {
     const unsubscribe = adService.onAdTriggered((event) => {
       if (screen === "admin_dashboard") return;
-      // On regular Mobile browsers & Desktop, ads open in a new tab, while the movie opens in the previous tab in the background!
-      if (!isApkInstalled) return;
 
+      // In Mobile Browser & Web: Activate 5-second Skip Ad timer in navbar
       setMobileAdTab(event);
       setMobileAdSkipReady(false);
-      setSkipCountdown(3);
+      setSkipCountdown(5);
     });
     return () => unsubscribe();
-  }, [screen, isApkInstalled]);
+  }, [screen]);
 
-  // Give 2-3 seconds for ad impression to be fully registered/counted, then activate Skip option
+  // 5-second timer for ad skip button as requested: "wo 5 second ke timer ke sath aayega"
   useEffect(() => {
     if (!mobileAdTab) {
       setMobileAdSkipReady(false);
-      setSkipCountdown(3);
+      setSkipCountdown(5);
       return;
     }
 
     setMobileAdSkipReady(false);
-    setSkipCountdown(3);
+    setSkipCountdown(5);
 
     const interval = setInterval(() => {
       setSkipCountdown((prev) => {
@@ -807,14 +817,14 @@ export default function App() {
     return () => clearInterval(interval);
   }, [mobileAdTab]);
 
-  // Auto-dismiss after 15 seconds if untouched
+  // Auto-dismiss after 20 seconds if untouched
   useEffect(() => {
     if (!mobileAdTab) return;
     const timer = setTimeout(() => {
       setMobileAdTab(null);
       setMobileAdSkipReady(false);
-      setSkipCountdown(3);
-    }, 15000);
+      setSkipCountdown(5);
+    }, 20000);
     return () => clearTimeout(timer);
   }, [mobileAdTab]);
 
@@ -832,7 +842,7 @@ export default function App() {
     // 3. Close the in-app mobile ad tab view
     setMobileAdTab(null);
     setMobileAdSkipReady(false);
-    setSkipCountdown(3);
+    setSkipCountdown(5);
 
     // 4. Execute pending action if any was queued (e.g. movie download, detail navigation, search focus)
     if (pendingAdAction) {
@@ -900,8 +910,8 @@ export default function App() {
       return;
     }
 
-    // ON MOBILE / PHONE: REMOVE ALL ADS from link clicks!
-    if (isMobileOrTablet) {
+    // Inside APK: Skip ads as requested
+    if (isApkInstalled) {
       nextAction();
       return;
     }
@@ -952,64 +962,51 @@ export default function App() {
     nextAction();
   };
 
-  // Track if APK was downloaded or marked so Get APK button and notification popup are permanently hidden
-  const [isApkDownloaded, setIsApkDownloaded] = useState<boolean>(() => {
-    try {
-      if (typeof window === "undefined") return false;
-      return (
-        localStorage.getItem("sigmaflix_apk_downloaded") === "true" ||
-        sessionStorage.getItem("sigmaflix_apk_downloaded") === "true"
-      );
-    } catch {
-      return false;
-    }
-  });
-
+  // Popup download action
   const handleApkDownload = () => {
     try {
-      localStorage.setItem("sigmaflix_apk_downloaded", "true");
-      sessionStorage.setItem("sigmaflix_apk_downloaded", "true");
-      setIsApkDownloaded(true);
       setShowNotificationPopup(false);
     } catch (e) {
       console.error(e);
     }
   };
 
-  const hasApkOrDownloaded = isApkInstalled || isApkDownloaded;
-
   const [showNotificationPopup, setShowNotificationPopup] = useState(false);
-
   const initialNotificationFired = useRef(false);
+
+  // Clear any past permanent lock so popup shows for all web browser visitors
   useEffect(() => {
-    // Popup should never appear inside Admin Panel or if APK is already installed or downloaded
-    if (screen === "admin_dashboard" || hasApkOrDownloaded) {
+    try {
+      localStorage.removeItem("sigmaflix_apk_downloaded");
+      sessionStorage.removeItem("sigmaflix_apk_downloaded");
+    } catch {}
+
+    if (screen === "admin_dashboard" || isApkInstalled) {
       setShowNotificationPopup(false);
-      return;
     }
-  }, [screen, hasApkOrDownloaded]);
+  }, [screen, isApkInstalled]);
 
   useEffect(() => {
-    // Popup is completely disabled in Admin Panel or if inside installed APK / downloaded APK
-    if (screen === "admin_dashboard" || hasApkOrDownloaded) return;
+    // Strictly disable popup in Admin Panel or inside installed APK wrapper
+    if (screen === "admin_dashboard" || isApkInstalled) return;
 
-    // Jabtak aage wala cut na karde tab tak nahi jana chiye (stays visible until manually closed)
+    // While visible, wait for user to cut/skip
     if (showNotificationPopup) {
       return;
     }
 
-    // Har 10 second me popup aana chahiye (10s delay after closing, first load after 2s)
-    const delay = initialNotificationFired.current ? 10000 : 2000;
+    // First load opens quickly in 800ms, then repeats every 10s after closing
+    const delay = initialNotificationFired.current ? 10000 : 800;
     initialNotificationFired.current = true;
 
     const timer = setTimeout(() => {
-      if (!hasApkOrDownloaded) {
+      if (!isApkInstalled) {
         setShowNotificationPopup(true);
       }
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [showNotificationPopup, hasApkOrDownloaded, screen]);
+  }, [showNotificationPopup, isApkInstalled, screen]);
   
 
 
@@ -1674,17 +1671,13 @@ export default function App() {
       return;
     }
 
-    // User requirement:
-    // "mobile maine movie bina ad ke khulegi"
-    // "mobile browwser maine movie par click karne ke liye koi ad nahi aayega"
-    // "apk only for apk maine sari ads hat jayengi sari ki sari har jayengi . only link par rahegi"
-    // -> Mobile browsers and APK: 100% ad-free movie click!
-    if (isMobileDevice) {
+    // Inside APK only: 100% ad-free movie click
+    if (isApkInstalled) {
       return;
     }
 
-    // Desktop PC:
-    adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, false);
+    // Mobile Browser & Desktop: Trigger Monetag ad on movie click
+    adService.triggerMonetagDirect(e, `movie_click_${movie.id}`, isMobileOrTablet || isMobile);
   };
 
   // Series Episode Links Monetag 1-Ad Click Tracking (Mobile & Laptop separate handling)
@@ -2559,28 +2552,8 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
-              {/* For APK: When ad is open, My Library hides and the Skip Option appears right here permanently */}
-              {isApkInstalled && mobileAdTab ? (
-                <div className="flex items-center gap-1.5 animate-fadeIn">
-                  {mobileAdSkipReady ? (
-                    <button
-                      type="button"
-                      onClick={handleSkipAd}
-                      onTouchEnd={handleSkipAd}
-                      className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.95)] border border-white/50 cursor-pointer animate-pulse touch-manipulation select-none"
-                      title="Cut ad and continue"
-                    >
-                      <SkipForward className="w-4 h-4" />
-                      <span>Ad Skip ✕</span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/90 px-3 py-1.5 rounded-full border border-amber-500/60 shadow-inner">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                      <span>Skip in {skipCountdown}s</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
+              {/* My Library Button */}
+              {screen !== "login" && screen !== "pin_check" && (
                 <button
                   onClick={() => setScreen("my_library")}
                   className="flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-red-400 transition-colors px-3 py-2 rounded-md hover:bg-slate-800"
@@ -2590,19 +2563,43 @@ export default function App() {
                 </button>
               )}
 
-              {/* Get APK Button - strictly hidden if user has downloaded or installed the APK */}
-              {screen !== "login" && screen !== "pin_check" && !hasApkOrDownloaded && (
-                <a
-                  href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={handleApkDownload}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
-                  title="Download Sigma Flix 4us APK"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Get APK</span>
-                </a>
+              {/* Get APK spot: When ad triggers, Get APK disappears and in its exact spot the 5s Skip Ad button appears */}
+              {screen !== "login" && screen !== "pin_check" && (
+                mobileAdTab ? (
+                  <div className="flex items-center animate-fadeIn">
+                    {mobileAdSkipReady ? (
+                      <button
+                        type="button"
+                        onClick={handleSkipAd}
+                        onTouchEnd={handleSkipAd}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.95)] border border-white/50 cursor-pointer animate-pulse touch-manipulation select-none"
+                        title="Cut ad and continue"
+                      >
+                        <SkipForward className="w-4 h-4" />
+                        <span>Skip Ad ✕</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/95 px-3.5 py-1.5 rounded-full border border-amber-500/60 shadow-inner">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                        <span>Skip in {skipCountdown}s</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  !isApkInstalled && (
+                    <a
+                      href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={handleApkDownload}
+                      className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
+                      title="Download Sigma Flix 4us APK"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Get APK</span>
+                    </a>
+                  )
+                )
               )}
 
               {currentUserEmail && (
@@ -5074,7 +5071,7 @@ export default function App() {
                                   onClick={(e) => {
                                      e.stopPropagation();
                                      e.preventDefault();
-                                     if (isMobileOrTablet) {
+                                     if (isApkInstalled) {
                                        window.open(item.liveStreamLink, "_blank");
                                        return;
                                      }
@@ -5177,8 +5174,8 @@ export default function App() {
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => {
-                             if (isMobileOrTablet) {
-                               return; // Direct link opening on mobile with 0 ads
+                             if (isApkInstalled) {
+                               return;
                              }
                              if (liveStreamClickCount < 2) {
                                e.preventDefault();
@@ -5294,8 +5291,8 @@ export default function App() {
                     </motion.div>
                   )}
 
-                {/* HDHub4u Ad Format: Sponsored Native Banner Ad right before Download Links */}
-                <NativeBannerAd />
+                {/* HDHub4u Ad Format: Sponsored Native Banner Ad right before Download Links (mobile browser & desktop only, hidden in APK) */}
+                {!isApkInstalled && <NativeBannerAd />}
 
                 {/* BOTTOM: Download Buttons */}
                 <motion.div
@@ -5777,96 +5774,115 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* APK Push Notification - Active across site except Admin Panel */}
+      {/* APK Push Notification - Strictly for Web Browsers Only, Never in APK */}
       <AnimatePresence>
-        {showNotificationPopup && !hasApkOrDownloaded && screen !== "admin_dashboard" && (
-          <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
-            {/* Notification Card Sliding from Bottom */}
+        {showNotificationPopup && !isApkInstalled && screen !== "admin_dashboard" && (
+          <div className="fixed bottom-0 inset-x-0 z-[999999] flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
+            {/* Notification Card Sliding from Bottom - Compact Size */}
             <motion.div
               id="apk-notification-popup"
               initial={{ opacity: 0, y: "100%" }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: "100%" }}
-              className="pointer-events-auto relative z-10 w-full sm:max-w-md"
+              className="pointer-events-auto relative z-10 w-full sm:max-w-sm"
             >
               <div 
-                className="relative w-full bg-[#151518]/95 sm:bg-[#151518] border-t sm:border border-zinc-700/80 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-[0_-12px_45px_rgba(0,0,0,0.85)] text-center overflow-hidden cursor-default sm:cursor-pointer"
+                className="relative w-full bg-[#151518]/98 sm:bg-[#151518] border-t sm:border border-zinc-700/80 rounded-t-2xl sm:rounded-2xl p-3.5 sm:p-4 shadow-[0_-10px_35px_rgba(0,0,0,0.9)] text-center overflow-hidden cursor-default sm:cursor-pointer"
                 onClick={(e) => {
-                  const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
-                  // On Desktop: trigger Monetag ad as requested ("ye div par desktop ke monetag ki ad laga do, mobile ke liye rehne dena")
-                  if (!isMobile) {
-                    adService.triggerMonetagDirect(e, 'desktop_apk_notification_card', false);
+                  if (!isApkInstalled) {
+                    adService.triggerMonetagDirect(e, 'apk_notification_card', isMobileOrTablet);
                   }
                 }}
               >
-                {/* Close Button (X) - Triggers Monetag ad on desktop when cut, clean on mobile */}
+                {/* Close Button (X) */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
-                    // On Desktop: "iss div ko cut karne par ye div par dekstop ke liye ad laga do mobile k liye rehne dena"
-                    if (!isMobile) {
-                      adService.triggerMonetagDirect(e, 'desktop_apk_notification_cut_btn', false);
+                    if (!isApkInstalled) {
+                      adService.triggerMonetagDirect(e, 'apk_notification_cut_btn', isMobileOrTablet);
                     }
                     setShowNotificationPopup(false);
                   }}
-                  className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white bg-zinc-800/80 hover:bg-zinc-700 rounded-full transition-colors cursor-pointer"
+                  className="absolute top-2.5 right-2.5 p-1 text-zinc-400 hover:text-white bg-zinc-800/80 hover:bg-zinc-700 rounded-full transition-colors cursor-pointer"
                   title="Close notification"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
 
-                {/* App Icon */}
-                <div className="mx-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-lg shadow-red-600/30 border border-red-500/30 mb-3 sm:mb-3.5">
-                  <Download className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
+                {/* Compact Header: Icon + Title + Zero Ads Badge */}
+                <div className="flex items-center gap-2.5 mb-2 pr-5 text-left">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-md shadow-red-600/30 border border-red-500/30 shrink-0">
+                    <Download className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-[9px] font-black uppercase text-amber-300">
+                      <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                      <span>100% Zero Ads Guarantee</span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-black text-white tracking-wide truncate">
+                      Install Sigma Flix 4US APK
+                    </h3>
+                  </div>
                 </div>
 
-                {/* Title */}
-                <h3 className="text-lg sm:text-xl font-bold text-white tracking-wide">
-                  Install Sigma Flix 4US
-                </h3>
+                {/* English Warning / Notice Box - Compact */}
+                <div className="mb-2 p-2 rounded-xl bg-amber-950/40 border border-amber-500/40 text-left">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-sm leading-none mt-0.5">⚠️</span>
+                    <p className="text-[11px] text-amber-100/95 leading-tight">
+                      <strong className="text-amber-300 uppercase font-bold text-[10px] mr-1">OFFICIAL NOTICE:</strong>
+                      Download our official Android APK to get <span className="underline decoration-amber-400 font-extrabold text-white">0 ADS</span>! 100% clean, fast &amp; uninterrupted streaming.
+                    </p>
+                  </div>
+                </div>
 
-                {/* Subtitle */}
-                <p className="text-xs sm:text-sm text-zinc-400 mt-1.5 mb-5 max-w-xs mx-auto leading-relaxed">
-                  For the best streaming experience, download our official Android app.
-                </p>
+                {/* Feature Pills */}
+                <div className="flex items-center justify-center gap-1.5 text-[10px] font-semibold text-zinc-300 mb-2.5">
+                  <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Popups
+                  </span>
+                  <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Banner Ads
+                  </span>
+                  <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> Ad-Free
+                  </span>
+                </div>
 
                 {/* Actions: Install Button + Skip / Close Option */}
-                <div className="flex flex-col gap-2.5">
+                <div className="flex flex-col gap-1.5">
                   <a
                     href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
                     target="_blank"
                     rel="noreferrer"
                     onClick={(e) => {
-                      const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
-                      if (!isMobile) {
-                        adService.triggerMonetagDirect(e, 'desktop_apk_install_btn', false);
+                      if (!isApkInstalled) {
+                        adService.triggerMonetagDirect(e, 'apk_install_btn', isMobileOrTablet);
                       }
                       handleApkDownload();
                       setShowNotificationPopup(false);
                     }}
-                    className="w-full bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold text-base py-3 px-6 rounded-xl shadow-lg shadow-red-600/40 transition-all flex items-center justify-center gap-2 cursor-pointer hover:shadow-red-600/60"
+                    className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 text-white font-black text-xs sm:text-sm py-2 px-4 rounded-xl shadow-md shadow-red-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-red-600/50"
                   >
-                    <Download className="w-5 h-5" />
-                    <span>Install APK</span>
+                    <Download className="w-4 h-4" />
+                    <span>Download APK (0 Ads Experience)</span>
                   </a>
 
-                  {/* Skip Option for APK on Mobile */}
+                  {/* Skip Option for APK on Mobile Browser */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      const isMobile = isMobileOrTablet || (typeof window !== 'undefined' && window.innerWidth <= 768) || isApkInstalled;
-                      if (!isMobile) {
-                        adService.triggerMonetagDirect(e, 'desktop_apk_notification_skip_btn', false);
+                      if (!isApkInstalled) {
+                        adService.triggerMonetagDirect(e, 'apk_notification_skip_btn', isMobileOrTablet);
                       }
                       setShowNotificationPopup(false);
                     }}
-                    className="w-full py-2 text-xs sm:text-sm font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                    className="w-full py-1 text-[11px] font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1 active:scale-95"
                   >
-                    <SkipForward className="w-3.5 h-3.5" />
-                    <span>Skip for now ✕</span>
+                    <SkipForward className="w-3 h-3" />
+                    <span>Skip for now ✕ (Continue with ads)</span>
                   </button>
                 </div>
               </div>
