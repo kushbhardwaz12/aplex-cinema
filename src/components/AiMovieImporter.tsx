@@ -119,9 +119,9 @@ export const AiMovieImporter: React.FC<AiMovieImporterProps> = ({
   const handleUploadSingle = async (movie: ExtractedMovie) => {
     try {
       setLoading(true);
-      setStatusMessage(`Uploading "${movie.title}" to Sigma Flix 4us...`);
+      setStatusMessage(`Uploading "${movie.title}" to Maxhub4u...`);
       await onInstantUpload(movie);
-      setSuccessNotice(`🎉 "${movie.title}" uploaded successfully to Sigma Flix 4us!`);
+      setSuccessNotice(`🎉 "${movie.title}" uploaded successfully to Maxhub4u!`);
       setExtractedMovies(prev => prev.filter(m => m !== movie));
     } catch (err: any) {
       setError(`Failed to upload: ${err?.message || "Unknown error"}`);
@@ -143,7 +143,7 @@ export const AiMovieImporter: React.FC<AiMovieImporterProps> = ({
       setUploadingBulk(true);
       setStatusMessage(`Uploading ${toUpload.length} movies in bulk...`);
       await onInstantBulkUpload(toUpload);
-      setSuccessNotice(`🎉 Successfully uploaded ${toUpload.length} movies to Sigma Flix 4us!`);
+      setSuccessNotice(`🎉 Successfully uploaded ${toUpload.length} movies to Maxhub4u!`);
       setExtractedMovies([]);
       setSelectedBulkIndices([]);
     } catch (err: any) {
@@ -154,7 +154,7 @@ export const AiMovieImporter: React.FC<AiMovieImporterProps> = ({
     }
   };
 
-  const bookmarkletCode = `javascript:(function(){const title=document.querySelector('h1')?.innerText||document.title;const text=document.body.innerText.slice(0,10000);navigator.clipboard.writeText(location.href);alert('✨ Sigma Flix AI: Movie URL copied! Open Sigma Flix Admin and click Extract.');})();`;
+  const bookmarkletCode = `javascript:(function(){const title=document.querySelector('h1')?.innerText||document.title;const text=document.body.innerText.slice(0,10000);navigator.clipboard.writeText(location.href);alert('✨ Maxhub4u AI: Movie URL copied! Open Maxhub4u Admin and click Extract.');})();`;
 
   const copyBookmarklet = () => {
     navigator.clipboard.writeText(bookmarkletCode);
@@ -176,7 +176,7 @@ export const AiMovieImporter: React.FC<AiMovieImporterProps> = ({
             </div>
             <div>
               <h3 className="text-2xl font-black text-white tracking-wide flex items-center gap-2">
-                Sigma Flix AI Auto-Importer Bot
+                Maxhub4u AI Auto-Importer Bot
                 <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded-full">
                   Gemini 3.8
                 </span>
@@ -365,7 +365,7 @@ export const AiMovieImporter: React.FC<AiMovieImporterProps> = ({
               className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-amber-600/20 cursor-grab active:cursor-grabbing border border-amber-400/40"
               title="Drag me to your Bookmarks Bar"
             >
-              ⭐ Sigma Flix Bot
+              ⭐ Maxhub4u Bot
             </a>
 
             <button

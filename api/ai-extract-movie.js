@@ -85,7 +85,7 @@ function fallbackExtractMovies(rawText, pageUrl = "") {
     !l.includes("720p") && 
     !l.includes("1080p")
   );
-  const description = descLines.slice(0, 3).join("\n\n") || `Watch & Download ${title} in Full HD Dual Audio on Sigma-flix 4US. High speed fast direct cloud download servers.`;
+  const description = descLines.slice(0, 3).join("\n\n") || `Watch & Download ${title} in Full HD Dual Audio on Maxhub4u. High speed fast direct cloud download servers.`;
 
   const isSeries = /season|episode|s0\d|e0\d/i.test(title + " " + rawText);
 
@@ -207,7 +207,7 @@ export default async function handler(req, res) {
           }
         });
 
-        const prompt = `You are an expert movie content extractor for a movie website called "Sigma-flix 4US".
+        const prompt = `You are an expert movie content extractor for a movie website called "Maxhub4u".
 Analyze the following webpage content or text and extract the movie or web series details into valid JSON format.
 
 Source URL: ${pageUrl || "Direct Text"}
@@ -225,7 +225,7 @@ Output MUST be a valid JSON array of movie objects matching this exact structure
     "categories": ["action", "thriller"],
     "image": "Direct poster image URL (high quality)",
     "screenshots": ["Screenshot URL 1", "Screenshot URL 2", "Screenshot URL 3"],
-    "description": "Engaging movie synopsis and details. Mention available on Sigma-flix 4US.",
+    "description": "Engaging movie synopsis and details. Mention available on Maxhub4u.",
     "links": [
       { "quality": "480p", "size": "450MB", "url": "Download link or page link" },
       { "quality": "720p", "size": "1.2GB", "url": "Download link or page link" },

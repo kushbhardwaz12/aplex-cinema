@@ -296,7 +296,7 @@ class SecurityShieldService {
     const epochSec = Math.floor(Date.now() / 1000);
     const timeStep = Math.floor(epochSec / 30);
     
-    // Hash-based numeric deterministic TOTP simulation for Sigma Flix
+    // Hash-based numeric deterministic TOTP simulation for Maxhub4u
     const hash1 = (timeStep * 31337 + 10101) % 1000000;
     const hash2 = ((timeStep - 1) * 31337 + 10101) % 1000000; // allow 30s clock drift
     const hash3 = ((timeStep + 1) * 31337 + 10101) % 1000000;

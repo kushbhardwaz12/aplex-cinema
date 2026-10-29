@@ -56,7 +56,7 @@ export function InPagePushAd({ movieTitle, isVisible = true }: InPagePushAdProps
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
             </span>
             <span className="text-[11px] font-black tracking-wider uppercase text-red-400 flex items-center gap-1">
-              SIGMA FLIX 4US <span className="text-slate-500">•</span> Alert
+              MAXHUB 4U <span className="text-slate-500">•</span> Alert
             </span>
           </div>
           

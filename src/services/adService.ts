@@ -57,7 +57,7 @@ class AdService {
     if (typeof window === "undefined") return false;
     try {
       const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any)?.standalone === true;
-      const isWebView = /;\s*wv\b/i.test(navigator.userAgent) || /SigmaFlix|AplexApp/i.test(navigator.userAgent);
+      const isWebView = /;\s*wv\b/i.test(navigator.userAgent) || /SigmaFlix|AplexApp|Maxhub4u|maxhub/i.test(navigator.userAgent);
       return Boolean(isStandalone || isWebView);
     } catch {
       return false;

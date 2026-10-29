@@ -622,7 +622,7 @@ export default function App() {
         (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
       const isWebView = 
         /;\s*wv\b/i.test(ua) || 
-        /e-droid|app4185770|AppCreator24|SigmaFlixApp/i.test(ua) ||
+        /e-droid|app4185770|AppCreator24|SigmaFlixApp|Maxhub4u|maxhub/i.test(ua) ||
         Boolean((window as any).Android || (window as any).AndroidInterface || (window as any).JSInterface || (window as any).appCreator);
       const isApkParam = 
         window.location.search.includes("is_apk=1") || 
@@ -1438,11 +1438,11 @@ export default function App() {
   // URL and Dynamic SEO updating logic
   useEffect(() => {
     if (screen === "movie_detail" && selectedMovie) {
-      document.title = `${selectedMovie.title} - Download Latest HD | Sigma Flix 4us`;
+      document.title = `${selectedMovie.title} - Download Latest HD | Maxhub4u`;
       
       const cleanDesc = selectedMovie.description
         ? selectedMovie.description.replace(/\s+/g, " ").trim().substring(0, 160)
-        : `Download and watch ${selectedMovie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Sigma Flix 4us.`;
+        : `Download and watch ${selectedMovie.title} in HD 1080p, 720p, 480p and HEVC Dual Audio on Maxhub4u.`;
       
       // Update Meta Description
       let metaDesc = document.querySelector('meta[name="description"]') || document.createElement('meta');
@@ -1461,7 +1461,7 @@ export default function App() {
       // Update OG Title
       let ogTitle = document.querySelector('meta[property="og:title"]') || document.createElement('meta');
       ogTitle.setAttribute('property', 'og:title');
-      ogTitle.setAttribute('content', `${selectedMovie.title} - Sigma Flix 4us`);
+      ogTitle.setAttribute('content', `${selectedMovie.title} - Maxhub4u`);
       document.head.appendChild(ogTitle);
 
       // Update OG Description
@@ -1485,7 +1485,7 @@ export default function App() {
       // Update Twitter Cards
       let twTitle = document.querySelector('meta[name="twitter:title"]') || document.createElement('meta');
       twTitle.setAttribute('name', 'twitter:title');
-      twTitle.setAttribute('content', `${selectedMovie.title} - Sigma Flix 4us`);
+      twTitle.setAttribute('content', `${selectedMovie.title} - Maxhub4u`);
       document.head.appendChild(twTitle);
 
       let twDesc = document.querySelector('meta[name="twitter:description"]') || document.createElement('meta');
@@ -1522,7 +1522,7 @@ export default function App() {
          window.history.pushState({ screen: "movie_detail", movieId: selectedMovie.id }, '', newUrl);
       }
     } else if (screen === "public_home") {
-      document.title = "Sigma Flix 4us - Download Latest HD Movies & Web Series";
+      document.title = "Maxhub4u - Download Latest HD Movies & Web Series";
       
       let canonicalLink = document.querySelector('link[rel="canonical"]') || document.createElement('link');
       canonicalLink.setAttribute('rel', 'canonical');
@@ -2436,7 +2436,7 @@ export default function App() {
 
     const docData: any = {
       title: movie.title,
-      description: movie.description || `Watch & Download ${movie.title} in HD on Sigma Flix 4us.`,
+      description: movie.description || `Watch & Download ${movie.title} in HD on Maxhub4u.`,
       image: movie.image || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
       category: movie.categories && movie.categories.length > 0 ? movie.categories : ["action"],
       screenshots: movie.screenshots || [],
@@ -2540,13 +2540,30 @@ export default function App() {
                       return prev + 1;
                     });
                   }}
-                  title="Sigma Flix 4us"
+                  title="Maxhub4u"
                 >
-                  <span className="bg-gradient-to-r from-white via-slate-100 to-red-400 bg-clip-text text-transparent font-black tracking-wide drop-shadow-[0_2px_10px_rgba(239,68,68,0.3)]">
-                    SIGMA<span className="text-red-500 font-black"> FLIX</span>
+                  <span
+                    className="bg-gradient-to-r from-white via-slate-100 to-red-400 bg-clip-text text-transparent tracking-wide drop-shadow-[0_2px_10px_rgba(239,68,68,0.3)]"
+                    style={{
+                      fontStyle: "italic",
+                      fontFamily: "Times New Roman, serif",
+                      textDecorationLine: "line-through",
+                      fontWeight: "normal",
+                      lineHeight: "37px",
+                      fontSize: "30px",
+                    }}
+                  >
+                    MAX<span className="text-red-500">HUB</span>
                   </span>
-                  <span className="bg-gradient-to-r from-red-600 to-red-500 text-white text-xs font-black px-2 py-0.5 rounded-md italic shadow-lg shadow-red-500/25 tracking-wider ml-2 border border-red-500/30">
-                    4US
+                  <span
+                    className="bg-gradient-to-r from-red-600 to-red-500 text-white font-black px-2 py-0.5 rounded-md italic shadow-lg shadow-red-500/25 tracking-wider ml-2 border border-red-500/30"
+                    style={{
+                      fontFamily: "Times New Roman, serif",
+                      lineHeight: "19px",
+                      fontSize: "20px",
+                    }}
+                  >
+                    4U
                   </span>
                 </div>
               </div>
@@ -2593,7 +2610,7 @@ export default function App() {
                       rel="noreferrer"
                       onClick={handleApkDownload}
                       className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
-                      title="Download Sigma Flix 4us APK"
+                      title="Download Maxhub4u APK"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Get APK</span>
@@ -5291,8 +5308,8 @@ export default function App() {
                     </motion.div>
                   )}
 
-                {/* HDHub4u Ad Format: Sponsored Native Banner Ad right before Download Links (mobile browser & desktop only, hidden in APK) */}
-                {!isApkInstalled && <NativeBannerAd />}
+                {/* Sponsored Native Banner Ad right before Download Links (active in web and APK - exactly 2 ads on mobile/APK) */}
+                <NativeBannerAd />
 
                 {/* BOTTOM: Download Buttons */}
                 <motion.div
@@ -5711,7 +5728,7 @@ export default function App() {
                   {mobileAdTab.network} Ad
                 </span>
                 <span className="text-xs text-zinc-300 font-semibold truncate hidden sm:inline">
-                  Sigma Flix 4us
+                  Maxhub4u
                 </span>
               </div>
 
@@ -5821,7 +5838,7 @@ export default function App() {
                       <span>100% Zero Ads Guarantee</span>
                     </div>
                     <h3 className="text-sm sm:text-base font-black text-white tracking-wide truncate">
-                      Install Sigma Flix 4US APK
+                      Install Maxhub4u APK
                     </h3>
                   </div>
                 </div>
@@ -5843,7 +5860,7 @@ export default function App() {
                     <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Popups
                   </span>
                   <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Banner Ads
+                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Redirects
                   </span>
                   <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> Ad-Free
@@ -5866,7 +5883,7 @@ export default function App() {
                     className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 text-white font-black text-xs sm:text-sm py-2 px-4 rounded-xl shadow-md shadow-red-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-red-600/50"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Download APK (0 Ads Experience)</span>
+                    <span>Download Maxhub4u APK (0 Ads)</span>
                   </a>
 
                   {/* Skip Option for APK on Mobile Browser */}

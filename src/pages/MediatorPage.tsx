@@ -94,9 +94,9 @@ export function MediatorPage({ movieId, quality, url }: MediatorPageProps) {
       <div className="w-full relative z-10 flex items-center justify-between px-6 py-5 bg-slate-950/80 backdrop-blur-sm">
         <div className="flex items-center">
           <div className="flex items-center text-xl font-black tracking-tight select-none mr-3">
-            <span className="text-white font-black">SIGMA</span><span className="text-red-500 font-black"> FLIX</span>
+            <span className="text-white font-black">MAX</span><span className="text-red-500 font-black">HUB</span>
             <span className="bg-gradient-to-r from-red-600 to-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded italic ml-1.5 shadow-md border border-red-500/30">
-              4US
+              4U
             </span>
           </div>
           <span className="hidden sm:inline-block text-slate-700 mx-2">|</span>
