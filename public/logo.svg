@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <defs>
+    <radialGradient id="logoBgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#17171a" />
+      <stop offset="100%" stop-color="#0d0d0d" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background Rounded Rectangle -->
+  <rect x="25" y="25" width="450" height="450" rx="95" ry="95" fill="url(#logoBgGlow)" stroke="#222226" stroke-width="3" />
+  
+  <g id="logo-emblem">
+    <!-- White Letter 'U' Overlapping -->
+    <path d="M 250 162 L 308 162 L 308 275 C 308 293 322 307 340 307 C 358 307 372 293 372 275 L 372 162 L 430 162 L 430 275 C 430 325 390 338 340 338 C 290 338 250 325 250 275 Z" fill="#ffffff" />
+
+    <!-- Red Number '4' Overlapping -->
+    <path d="M 233 162 L 175 162 L 70 268 L 70 300 L 175 300 L 175 338 L 233 338 L 233 300 L 270 300 L 258 268 L 233 268 L 233 162 Z M 175 220 L 175 268 L 128 268 Z" fill="#ff0f39" />
+  </g>
+</svg>
