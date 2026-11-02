@@ -463,6 +463,7 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [adTriggeredKeys, setAdTriggeredKeys] = useState<Set<string>>(new Set());
   const DIRECT_LINK = adService.getActiveDirectLink();
+  const APK_DOWNLOAD_URL = "https://drive.google.com/drive/folders/1W_kFzu5wqaaIxdmKoLmhfBnqsZEKhvxG?usp=drive_link";
 
   // Dynamic Monetag & Adsterra Monetization state
   const [monetagDirectLink, setMonetagDirectLink] = useState(() => adService.getActiveMonetagLink());
@@ -779,18 +780,19 @@ export default function App() {
   const [pendingAdAction, setPendingAdAction] = useState<(() => void) | null>(null);
   const [skipNoticeToast, setSkipNoticeToast] = useState<string | null>(null);
 
-  // Subscribe to adService trigger events for Mobile Browser & APK
+  // Subscribe to adService trigger events strictly for Mobile Browser & APK (laptop browser excluded as requested)
   useEffect(() => {
     const unsubscribe = adService.onAdTriggered((event) => {
       if (screen === "admin_dashboard") return;
+      // Skip Ad button was explicitly requested only for mobile browser/APK, NOT for laptop browser
+      if (!isMobileOrTablet && !isApkInstalled) return;
 
-      // In Mobile Browser & Web: Activate 5-second Skip Ad timer in navbar
       setMobileAdTab(event);
       setMobileAdSkipReady(false);
       setSkipCountdown(5);
     });
     return () => unsubscribe();
-  }, [screen]);
+  }, [screen, isMobileOrTablet, isApkInstalled]);
 
   // 5-second timer for ad skip button as requested: "wo 5 second ke timer ke sath aayega"
   useEffect(() => {
@@ -2580,9 +2582,10 @@ export default function App() {
                 </button>
               )}
 
-              {/* Get APK spot: When ad triggers, Get APK disappears and in its exact spot the 5s Skip Ad button appears */}
+              {/* Mobile Browser: When ad triggers, Get APP disappears and 5s Skip Ad button appears */}
+              {/* Laptop Browser: Always shows Get APP, never shows Skip Ad button */}
               {screen !== "login" && screen !== "pin_check" && (
-                mobileAdTab ? (
+                (isMobileOrTablet && mobileAdTab) ? (
                   <div className="flex items-center animate-fadeIn">
                     {mobileAdSkipReady ? (
                       <button
@@ -2605,15 +2608,15 @@ export default function App() {
                 ) : (
                   !isApkInstalled && (
                     <a
-                      href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                      href={APK_DOWNLOAD_URL}
                       target="_blank"
                       rel="noreferrer"
                       onClick={handleApkDownload}
                       className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
-                      title="Download Maxhub4u APK"
+                      title="Download Maxhub4u App"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Get APK</span>
+                      <span>Get APP</span>
                     </a>
                   )
                 )
@@ -5870,7 +5873,7 @@ export default function App() {
                 {/* Actions: Install Button + Skip / Close Option */}
                 <div className="flex flex-col gap-1.5">
                   <a
-                    href="https://apk.e-droid.net/apk/app4185770-ra0ojl.apk?v=1"
+                    href={APK_DOWNLOAD_URL}
                     target="_blank"
                     rel="noreferrer"
                     onClick={(e) => {
@@ -5883,7 +5886,7 @@ export default function App() {
                     className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 text-white font-black text-xs sm:text-sm py-2 px-4 rounded-xl shadow-md shadow-red-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-red-600/50"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Download Maxhub4u APK (0 Ads)</span>
+                    <span>Download Maxhub4u App (0 Ads)</span>
                   </a>
 
                   {/* Skip Option for APK on Mobile Browser */}
