@@ -2608,10 +2608,13 @@ export default function App() {
                 ) : (
                   !isApkInstalled && (
                     <a
-                      href={APK_DOWNLOAD_URL}
+                      href="https://drive.google.com/drive/folders/1W_kFzu5wqaaIxdmKoLmhfBnqsZEKhvxG?usp=drive_link"
                       target="_blank"
-                      rel="noreferrer"
-                      onClick={handleApkDownload}
+                      rel="noopener noreferrer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleApkDownload();
+                      }}
                       className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
                       title="Download Maxhub4u App"
                     >
@@ -5873,13 +5876,11 @@ export default function App() {
                 {/* Actions: Install Button + Skip / Close Option */}
                 <div className="flex flex-col gap-1.5">
                   <a
-                    href={APK_DOWNLOAD_URL}
+                    href="https://drive.google.com/drive/folders/1W_kFzu5wqaaIxdmKoLmhfBnqsZEKhvxG?usp=drive_link"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     onClick={(e) => {
-                      if (!isApkInstalled) {
-                        adService.triggerMonetagDirect(e, 'apk_install_btn', isMobileOrTablet);
-                      }
+                      e.stopPropagation();
                       handleApkDownload();
                       setShowNotificationPopup(false);
                     }}
