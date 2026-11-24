@@ -47,7 +47,9 @@ import {
   Cpu,
   Database,
   Radio,
-  X } from "lucide-react";
+  X,
+  Calendar,
+  Folder } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   collection,
@@ -55,6 +57,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   onSnapshot,
   updateDoc,
@@ -94,6 +97,15 @@ const workerScript = `
     }
   };
 `;
+
+const isFirestoreQuotaError = (err: unknown): boolean => {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  return (
+    e.code === "resource-exhausted" ||
+    /quota|resource-exhausted|free daily read units/i.test(e.message || "")
+  );
+};
 
 const compressImage = (file: File, maxWidth: number = 600, quality: number = 0.6): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -169,6 +181,7 @@ interface Episode {
   link: string;
   watchOnlineUrl?: string;
   note?: string;
+  heading?: string;
 }
 
 interface Movie {
@@ -191,7 +204,8 @@ interface Movie {
   size720pHevc?: string;
   size1080pHevc?: string;
   size4k?: string;
-  extraLinks?: { name: string; url: string; size: string }[];
+  linkHeadings?: Record<string, string>;
+  extraLinks?: { name: string; url: string; size: string; heading?: string }[];
   ratings?: number[];
   episodes?: Episode[];
   isHighlight?: boolean;
@@ -463,7 +477,6 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [adTriggeredKeys, setAdTriggeredKeys] = useState<Set<string>>(new Set());
   const DIRECT_LINK = adService.getActiveDirectLink();
-  const APK_DOWNLOAD_URL = "https://drive.google.com/drive/folders/1W_kFzu5wqaaIxdmKoLmhfBnqsZEKhvxG?usp=drive_link";
 
   // Dynamic Monetag & Adsterra Monetization state
   const [monetagDirectLink, setMonetagDirectLink] = useState(() => adService.getActiveMonetagLink());
@@ -533,38 +546,40 @@ export default function App() {
     return clean;
   };
 
-  // Sync Google verification code from Firestore & update meta tag
+  // Sync Google verification code from Firestore & update meta tag (cached for 30 mins to preserve quota)
   useEffect(() => {
+    const applyGscCode = (raw: string) => {
+      const clean = sanitizeGscToken(raw);
+      if (!clean) return;
+      setGscVerificationCode(clean);
+      let metaTag = document.querySelector('meta[name="google-site-verification"]');
+      if (!metaTag) {
+        metaTag = document.createElement("meta");
+        metaTag.setAttribute("name", "google-site-verification");
+        document.head.appendChild(metaTag);
+      }
+      metaTag.setAttribute("content", clean);
+    };
+
     const fetchSeoSettings = async () => {
       try {
+        const localCode = localStorage.getItem("gsc_verification_code");
+        const lastSeoTs = Number(localStorage.getItem("gsc_verification_code_ts") || "0");
+        if (localCode) {
+          applyGscCode(localCode);
+          if (Date.now() - lastSeoTs < 30 * 60 * 1000) return;
+        }
         const snap = await getDoc(doc(db, "site_settings", "seo"));
+        localStorage.setItem("gsc_verification_code_ts", String(Date.now()));
         if (snap.exists() && snap.data()?.verificationCode) {
-          const rawCode = snap.data().verificationCode;
-          const code = sanitizeGscToken(rawCode);
-          setGscVerificationCode(code);
+          const code = sanitizeGscToken(snap.data().verificationCode);
           localStorage.setItem("gsc_verification_code", code);
-          let metaTag = document.querySelector('meta[name="google-site-verification"]');
-          if (!metaTag) {
-            metaTag = document.createElement("meta");
-            metaTag.setAttribute("name", "google-site-verification");
-            document.head.appendChild(metaTag);
-          }
-          metaTag.setAttribute("content", code);
-        } else {
-          const localCode = localStorage.getItem("gsc_verification_code");
-          if (localCode) {
-            const clean = sanitizeGscToken(localCode);
-            setGscVerificationCode(clean);
-            let metaTag = document.querySelector('meta[name="google-site-verification"]');
-            if (!metaTag) {
-              metaTag = document.createElement("meta");
-              metaTag.setAttribute("name", "google-site-verification");
-              document.head.appendChild(metaTag);
-            }
-            metaTag.setAttribute("content", clean);
-          }
+          applyGscCode(code);
         }
       } catch (e) {
+        if (isFirestoreQuotaError(e)) {
+          setFirestoreQuotaExceeded(true);
+        }
         console.warn("Could not fetch SEO settings:", e);
       }
     };
@@ -963,52 +978,6 @@ export default function App() {
     
     nextAction();
   };
-
-  // Popup download action
-  const handleApkDownload = () => {
-    try {
-      setShowNotificationPopup(false);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const [showNotificationPopup, setShowNotificationPopup] = useState(false);
-  const initialNotificationFired = useRef(false);
-
-  // Clear any past permanent lock so popup shows for all web browser visitors
-  useEffect(() => {
-    try {
-      localStorage.removeItem("sigmaflix_apk_downloaded");
-      sessionStorage.removeItem("sigmaflix_apk_downloaded");
-    } catch {}
-
-    if (screen === "admin_dashboard" || isApkInstalled) {
-      setShowNotificationPopup(false);
-    }
-  }, [screen, isApkInstalled]);
-
-  useEffect(() => {
-    // Strictly disable popup in Admin Panel or inside installed APK wrapper
-    if (screen === "admin_dashboard" || isApkInstalled) return;
-
-    // While visible, wait for user to cut/skip
-    if (showNotificationPopup) {
-      return;
-    }
-
-    // First load opens quickly in 800ms, then repeats every 10s after closing
-    const delay = initialNotificationFired.current ? 10000 : 800;
-    initialNotificationFired.current = true;
-
-    const timer = setTimeout(() => {
-      if (!isApkInstalled) {
-        setShowNotificationPopup(true);
-      }
-    }, delay);
-
-    return () => clearTimeout(timer);
-  }, [showNotificationPopup, isApkInstalled, screen]);
   
 
 
@@ -1113,7 +1082,9 @@ export default function App() {
   const [size720pHevc, setSize720pHevc] = useState("");
   const [size1080pHevc, setSize1080pHevc] = useState("");
   const [size4k, setSize4k] = useState("");
-  const [extraLinks, setExtraLinks] = useState<{ name: string; url: string; size: string }[]>([]);
+  const [extraLinks, setExtraLinks] = useState<{ name: string; url: string; size: string; heading?: string; showHeading?: boolean }[]>([]);
+  const [linkHeadings, setLinkHeadings] = useState<Record<string, string>>({});
+  const [openLinkHeadingBoxes, setOpenLinkHeadingBoxes] = useState<Record<string, boolean>>({});
 
   const [adminError, setAdminError] = useState("");
   const [adminSuccess, setAdminSuccess] = useState("");
@@ -1142,8 +1113,8 @@ export default function App() {
   const [seriesScreenshotUrlInput, setSeriesScreenshotUrlInput] = useState("");
   const [isSeriesHighlight, setIsSeriesHighlight] = useState(false);
   const [seriesTrailerUrl, setSeriesTrailerUrl] = useState("");
-  const [episodes, setEpisodes] = useState<{ link: string; watchOnlineUrl?: string; note?: string; title?: string }[]>([
-    { link: "", watchOnlineUrl: "", note: "", title: "" },
+  const [episodes, setEpisodes] = useState<{ link: string; watchOnlineUrl?: string; note?: string; title?: string; heading?: string; showHeading?: boolean }[]>([
+    { link: "", watchOnlineUrl: "", note: "", title: "", heading: "", showHeading: false },
   ]);
   const [seriesLink620p, setSeriesLink620p] = useState("");
   const [seriesLink720p, setSeriesLink720p] = useState("");
@@ -1157,7 +1128,9 @@ export default function App() {
   const [seriesSize720pHevc, setSeriesSize720pHevc] = useState("");
   const [seriesSize1080pHevc, setSeriesSize1080pHevc] = useState("");
   const [seriesSize4k, setSeriesSize4k] = useState("");
-  const [seriesExtraLinks, setSeriesExtraLinks] = useState<{ name: string; url: string; size: string }[]>([]);
+  const [seriesExtraLinks, setSeriesExtraLinks] = useState<{ name: string; url: string; size: string; heading?: string; showHeading?: boolean }[]>([]);
+  const [seriesLinkHeadings, setSeriesLinkHeadings] = useState<Record<string, string>>({});
+  const [openSeriesLinkHeadingBoxes, setOpenSeriesLinkHeadingBoxes] = useState<Record<string, boolean>>({});
 
   const [starClicks, setStarClicks] = useState(0);
   const [showAdminLoginForm, setShowAdminLoginForm] = useState(false);
@@ -1182,6 +1155,8 @@ export default function App() {
   const [isLoadingMovies, setIsLoadingMovies] = useState<boolean>(() => {
     return false; // Instant availability
   });
+  const [firestoreQuotaExceeded, setFirestoreQuotaExceeded] = useState<boolean>(false);
+  const [catalogRefreshNonce, setCatalogRefreshNonce] = useState<number>(0);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [isSliderHovered, setIsSliderHovered] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
@@ -1329,49 +1304,65 @@ export default function App() {
   const [newComment, setNewComment] = useState("");
 
   useEffect(() => {
-    const fetchStartTime = performance.now();
-    // 🔥 Humne query mein 'orderBy' jod diya hai taaki Instagram jaisa live setup bane
-    const q = query(collection(db, "movies"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchEndTime = performance.now();
-        if (process.env.NODE_ENV !== "production") {
-          console.log(`[Performance] Movies data loaded in ${(fetchEndTime - fetchStartTime).toFixed(2)}ms (Count: ${snapshot.size})`);
-        }
-        const moviesData: Movie[] = [];
-        snapshot.forEach((doc) => {
-          moviesData.push({ id: doc.id, ...doc.data() } as Movie);
-        });
-        
-        if (initialLoadComplete.current) {
-          snapshot.docChanges().forEach((change) => {
-            if (change.type === "added") {
-              const data = change.doc.data();
-              if (data.createdAt && data.createdAt.toMillis && (Date.now() - data.createdAt.toMillis() < 60000)) {
-                if (auth.currentUser) {
-                  setNewMovieNotice(data.title);
-                  setTimeout(() => setNewMovieNotice(null), 5000);
-                }
-              }
-            }
-          });
-        }
-        initialLoadComplete.current = true;
+    let isCancelled = false;
+    const CATALOG_TTL_MS = 10 * 60 * 1000;
 
-        // Ab data direct top-to-bottom automatically line mein lag kar aayega
+    const cacheMoviesCatalog = (list: Movie[]) => {
+      const slices = [list, list.slice(0, 80), list.slice(0, 40)];
+      for (const subset of slices) {
+        try {
+          localStorage.setItem("cached_movies_catalog", JSON.stringify(subset));
+          localStorage.setItem("cached_movies_catalog_ts", String(Date.now()));
+          return;
+        } catch {}
+      }
+    };
+
+    const loadMoviesCatalog = async () => {
+      // Skip redundant full-collection reads when recent cache is valid (unless inside admin dashboard or manually refreshed)
+      if (screen !== "admin_dashboard" && catalogRefreshNonce === 0) {
+        try {
+          const lastTs = Number(localStorage.getItem("cached_movies_catalog_ts") || "0");
+          const hasCache = Boolean(localStorage.getItem("cached_movies_catalog"));
+          if (hasCache && Date.now() - lastTs < CATALOG_TTL_MS) {
+            setIsLoadingMovies(false);
+            return;
+          }
+        } catch {}
+      }
+
+      try {
+        const q = query(collection(db, "movies"), orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(q);
+        if (isCancelled) return;
+
+        const moviesData: Movie[] = [];
+        snapshot.forEach((d) => {
+          moviesData.push({ id: d.id, ...d.data() } as Movie);
+        });
+
+        initialLoadComplete.current = true;
+        setFirestoreQuotaExceeded(false);
         setMovies(moviesData);
         setIsLoadingMovies(false);
-        try {
-          localStorage.setItem("cached_movies_catalog", JSON.stringify(moviesData.slice(0, 40)));
-        } catch {}
-      },
-      (error) => {
-        console.error("Firestore Error in App.tsx movies onSnapshot:", error);
-      },
-    );
-    return () => unsubscribe();
-  }, []);
+        cacheMoviesCatalog(moviesData);
+      } catch (error) {
+        if (isCancelled) return;
+        setIsLoadingMovies(false);
+        if (isFirestoreQuotaError(error)) {
+          setFirestoreQuotaExceeded(true);
+          console.warn("Firestore daily read quota exceeded — serving cached catalog.");
+        } else {
+          console.warn("Firestore catalog load error (using cached fallback):", error);
+        }
+      }
+    };
+
+    loadMoviesCatalog();
+    return () => {
+      isCancelled = true;
+    };
+  }, [screen === "admin_dashboard", catalogRefreshNonce]);
 
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1396,12 +1387,17 @@ export default function App() {
       });
       setComments(commentsData);
     }, (error) => {
-      console.error("Comments onSnapshot error:", error);
+      if (isFirestoreQuotaError(error)) {
+        setFirestoreQuotaExceeded(true);
+        console.warn("Comments listener paused due to Firestore quota limit.");
+      } else {
+        console.warn("Comments onSnapshot warning:", error);
+      }
     });
     return () => unsubscribe();
   }, [selectedMovie]);
 
-  // Fast direct movie fetch for SEO bots & direct links (avoids waiting for 194 movies)
+  // Fast direct movie fetch for SEO bots & direct links (uses local cache first to save reads)
   useEffect(() => {
     const path = window.location.pathname;
     if (path.startsWith("/movie/")) {
@@ -1421,6 +1417,13 @@ export default function App() {
       document.head.appendChild(robotsMeta);
 
       if (movieId) {
+        const localMatch = movies.find((m) => m.id === movieId);
+        if (localMatch) {
+          setSelectedMovie(localMatch);
+          setScreen("movie_detail");
+          setIsLoadingMovies(false);
+          return;
+        }
         getDoc(doc(db, "movies", movieId))
           .then((snap) => {
             if (snap.exists()) {
@@ -1431,7 +1434,10 @@ export default function App() {
             }
           })
           .catch((err) => {
-            console.warn("Direct movie fetch for SEO/routing failed:", err);
+            if (isFirestoreQuotaError(err)) {
+              setFirestoreQuotaExceeded(true);
+            }
+            console.warn("Direct movie fetch for SEO/routing skipped:", err);
           });
       }
     }
@@ -1976,6 +1982,18 @@ export default function App() {
           bringToTop = false;
         }
 
+        const cleanedSeriesHeadings: Record<string, string> = {};
+        Object.keys(seriesLinkHeadings).forEach((k) => {
+          const val = (seriesLinkHeadings[k] || "").trim();
+          if (openSeriesLinkHeadingBoxes[k] && val) cleanedSeriesHeadings[k] = val;
+        });
+        const cleanedSeriesExtraLinks = seriesExtraLinks.map(({ name, url, size, heading, showHeading }) => ({
+          name,
+          url,
+          size,
+          heading: showHeading ? (heading || "").trim() : "",
+        }));
+
         const updateData: any = {
           title: seriesTitle,
           description: seriesDesc,
@@ -1988,6 +2006,7 @@ export default function App() {
             link: ep.link?.trim() || "",
             watchOnlineUrl: ep.watchOnlineUrl?.trim() || "",
             note: ep.note?.trim() || "",
+            heading: ep.showHeading ? (ep.heading?.trim() || "") : "",
           })),
           link620p: seriesLink620p,
           link720p: seriesLink720p,
@@ -2001,7 +2020,8 @@ export default function App() {
           size720pHevc: seriesSize720pHevc,
           size1080pHevc: seriesSize1080pHevc,
           size4k: seriesSize4k,
-          extraLinks: seriesExtraLinks,
+          linkHeadings: cleanedSeriesHeadings,
+          extraLinks: cleanedSeriesExtraLinks,
           isHighlight: isSeriesHighlight,
           trailerUrl: seriesTrailerUrl,
         };
@@ -2016,6 +2036,7 @@ export default function App() {
         }
 
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
+        setCatalogRefreshNonce((n) => n + 1);
         setAdminSuccess("Web Series updated successfully!");
         setEditingMovieId(null);
       } else {
@@ -2029,6 +2050,18 @@ export default function App() {
           if (ep.link) safeSetLocalStorage(`movieUrl_ep${idx}_${docId}`, ep.link);
           if (ep.watchOnlineUrl) safeSetLocalStorage(`movieUrl_epOnline${idx}_${docId}`, ep.watchOnlineUrl);
         });
+
+        const cleanedSeriesHeadings: Record<string, string> = {};
+        Object.keys(seriesLinkHeadings).forEach((k) => {
+          const val = (seriesLinkHeadings[k] || "").trim();
+          if (openSeriesLinkHeadingBoxes[k] && val) cleanedSeriesHeadings[k] = val;
+        });
+        const cleanedSeriesExtraLinks = seriesExtraLinks.map(({ name, url, size, heading, showHeading }) => ({
+          name,
+          url,
+          size,
+          heading: showHeading ? (heading || "").trim() : "",
+        }));
 
         const newSeries = {
           type: "series",
@@ -2045,6 +2078,7 @@ export default function App() {
             link: ep.link?.trim() || "",
             watchOnlineUrl: ep.watchOnlineUrl?.trim() || "",
             note: ep.note?.trim() || "",
+            heading: ep.showHeading ? (ep.heading?.trim() || "") : "",
           })),
           link620p: seriesLink620p,
           link720p: seriesLink720p,
@@ -2058,7 +2092,8 @@ export default function App() {
           size720pHevc: seriesSize720pHevc,
           size1080pHevc: seriesSize1080pHevc,
           size4k: seriesSize4k,
-          extraLinks: seriesExtraLinks,
+          linkHeadings: cleanedSeriesHeadings,
+          extraLinks: cleanedSeriesExtraLinks,
           ratings: [],
           createdAt: new Date(),
           isHighlight: isSeriesHighlight,
@@ -2071,6 +2106,7 @@ export default function App() {
         }
 
         await setDoc(docRef, newSeries);
+        setCatalogRefreshNonce((n) => n + 1);
         setAdminSuccess("Web Series published successfully!");
       }
 
@@ -2080,7 +2116,7 @@ export default function App() {
       setSeriesScreenshots([]);
       setIsSeriesHighlight(false);
       setSeriesTrailerUrl("");
-      setEpisodes([{ link: "", watchOnlineUrl: "", note: "", title: "" }]);
+      setEpisodes([{ link: "", watchOnlineUrl: "", note: "", title: "", heading: "", showHeading: false }]);
       setSeriesLink620p("");
       setSeriesLink720p("");
       setSeriesLink1080p("");
@@ -2093,6 +2129,9 @@ export default function App() {
       setSeriesSize720pHevc("");
       setSeriesSize1080pHevc("");
       setSeriesSize4k("");
+      setSeriesExtraLinks([]);
+      setSeriesLinkHeadings({});
+      setOpenSeriesLinkHeadingBoxes({});
       if (seriesFileInputRef.current) seriesFileInputRef.current.value = "";
       if (seriesScreenshotsInputRef.current)
         seriesScreenshotsInputRef.current.value = "";
@@ -2130,7 +2169,20 @@ export default function App() {
     setSeriesSize720pHevc(movie.size720pHevc || "");
     setSeriesSize1080pHevc(movie.size1080pHevc || "");
     setSeriesSize4k(movie.size4k || "");
-    setSeriesExtraLinks(movie.extraLinks || []);
+    const existingSeriesHeadings = movie.linkHeadings || {};
+    setSeriesLinkHeadings(existingSeriesHeadings);
+    const openSeriesBoxes: Record<string, boolean> = {};
+    Object.keys(existingSeriesHeadings).forEach((k) => {
+      if ((existingSeriesHeadings[k] || "").trim()) openSeriesBoxes[k] = true;
+    });
+    setOpenSeriesLinkHeadingBoxes(openSeriesBoxes);
+    setSeriesExtraLinks(
+      (movie.extraLinks || []).map((l) => ({
+        ...l,
+        heading: l.heading || "",
+        showHeading: Boolean(l.heading?.trim()),
+      }))
+    );
     setIsSeriesHighlight(movie.isHighlight || false);
     setSeriesTrailerUrl(movie.trailerUrl || "");
     setEpisodes(
@@ -2140,8 +2192,10 @@ export default function App() {
             watchOnlineUrl: ep.watchOnlineUrl || "",
             note: ep.note || "",
             title: ep.title || "",
+            heading: ep.heading || "",
+            showHeading: Boolean(ep.heading?.trim()),
           }))
-        : [{ link: "", watchOnlineUrl: "", note: "", title: "" }]
+        : [{ link: "", watchOnlineUrl: "", note: "", title: "", heading: "", showHeading: false }]
     );
     
     // Scroll to top
@@ -2217,6 +2271,18 @@ export default function App() {
           bringToTop = false;
         }
         
+        const cleanedMovieHeadings: Record<string, string> = {};
+        Object.keys(linkHeadings).forEach((k) => {
+          const val = (linkHeadings[k] || "").trim();
+          if (openLinkHeadingBoxes[k] && val) cleanedMovieHeadings[k] = val;
+        });
+        const cleanedExtraLinks = extraLinks.map(({ name, url, size, heading, showHeading }) => ({
+          name,
+          url,
+          size,
+          heading: showHeading ? (heading || "").trim() : "",
+        }));
+
         const updateData: any = {
           title: movieTitle,
           description: movieDesc,
@@ -2235,7 +2301,8 @@ export default function App() {
           size720pHevc,
           size1080pHevc,
           size4k,
-          extraLinks,
+          linkHeadings: cleanedMovieHeadings,
+          extraLinks: cleanedExtraLinks,
           isHighlight: isMovieHighlight,
           isLiveStream,
           liveStreamLink: liveStreamLink,
@@ -2252,6 +2319,7 @@ export default function App() {
         }
 
         await updateDoc(doc(db, "movies", editingMovieId), updateData);
+        setCatalogRefreshNonce((n) => n + 1);
         setAdminSuccess("Movie updated successfully!");
         setEditingMovieId(null);
       } else {
@@ -2262,6 +2330,18 @@ export default function App() {
         if (link720p) safeSetLocalStorage(`movieUrl_720p_${docId}`, link720p);
         if (link1080p) safeSetLocalStorage(`movieUrl_1080p_${docId}`, link1080p);
         if (liveStreamLink) safeSetLocalStorage(`movieUrl_live_${docId}`, liveStreamLink);
+
+        const cleanedMovieHeadings: Record<string, string> = {};
+        Object.keys(linkHeadings).forEach((k) => {
+          const val = (linkHeadings[k] || "").trim();
+          if (openLinkHeadingBoxes[k] && val) cleanedMovieHeadings[k] = val;
+        });
+        const cleanedExtraLinks = extraLinks.map(({ name, url, size, heading, showHeading }) => ({
+          name,
+          url,
+          size,
+          heading: showHeading ? (heading || "").trim() : "",
+        }));
 
         const newMovie = {
           title: movieTitle,
@@ -2284,7 +2364,8 @@ export default function App() {
           size720pHevc,
           size1080pHevc,
           size4k,
-          extraLinks,
+          linkHeadings: cleanedMovieHeadings,
+          extraLinks: cleanedExtraLinks,
           ratings: [],
           createdAt: new Date(),
           isHighlight: isMovieHighlight,
@@ -2299,6 +2380,7 @@ export default function App() {
         }
 
         await setDoc(docRef, newMovie);
+        setCatalogRefreshNonce((n) => n + 1);
         setAdminSuccess("Movie published successfully!");
       }
 
@@ -2318,6 +2400,9 @@ export default function App() {
       setSize720pHevc("");
       setSize1080pHevc("");
       setSize4k("");
+      setExtraLinks([]);
+      setLinkHeadings({});
+      setOpenLinkHeadingBoxes({});
       setIsMovieHighlight(false);
       setIsLiveStream(false);
       setLiveStreamLink("");
@@ -2358,7 +2443,20 @@ export default function App() {
     setSize720pHevc(movie.size720pHevc || "");
     setSize1080pHevc(movie.size1080pHevc || "");
     setSize4k(movie.size4k || "");
-    setExtraLinks(movie.extraLinks || []);
+    const existingMovieHeadings = movie.linkHeadings || {};
+    setLinkHeadings(existingMovieHeadings);
+    const openMovieBoxes: Record<string, boolean> = {};
+    Object.keys(existingMovieHeadings).forEach((k) => {
+      if ((existingMovieHeadings[k] || "").trim()) openMovieBoxes[k] = true;
+    });
+    setOpenLinkHeadingBoxes(openMovieBoxes);
+    setExtraLinks(
+      (movie.extraLinks || []).map((l) => ({
+        ...l,
+        heading: l.heading || "",
+        showHeading: Boolean(l.heading?.trim()),
+      }))
+    );
     setIsMovieHighlight(movie.isHighlight || false);
     setIsLiveStream(movie.isLiveStream || false);
     setLiveStreamLink(movie.liveStreamLink || "");
@@ -2371,6 +2469,8 @@ export default function App() {
   const handleDeleteMovie = async (id: string) => {
     try {
       await deleteDoc(doc(db, "movies", id));
+      setMovies((prev) => prev.filter((m) => m.id !== id));
+      setCatalogRefreshNonce((n) => n + 1);
       if (selectedMovie?.id === id) {
         setSelectedMovie(null);
         setScreen("public_home");
@@ -2582,47 +2682,27 @@ export default function App() {
                 </button>
               )}
 
-              {/* Mobile Browser: When ad triggers, Get APP disappears and 5s Skip Ad button appears */}
-              {/* Laptop Browser: Always shows Get APP, never shows Skip Ad button */}
-              {screen !== "login" && screen !== "pin_check" && (
-                (isMobileOrTablet && mobileAdTab) ? (
-                  <div className="flex items-center animate-fadeIn">
-                    {mobileAdSkipReady ? (
-                      <button
-                        type="button"
-                        onClick={handleSkipAd}
-                        onTouchEnd={handleSkipAd}
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.95)] border border-white/50 cursor-pointer animate-pulse touch-manipulation select-none"
-                        title="Cut ad and continue"
-                      >
-                        <SkipForward className="w-4 h-4" />
-                        <span>Skip Ad ✕</span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/95 px-3.5 py-1.5 rounded-full border border-amber-500/60 shadow-inner">
-                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                        <span>Skip in {skipCountdown}s</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  !isApkInstalled && (
-                    <a
-                      href="https://drive.google.com/drive/folders/1W_kFzu5wqaaIxdmKoLmhfBnqsZEKhvxG?usp=drive_link"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleApkDownload();
-                      }}
-                      className="flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white transition-all px-3.5 py-1.5 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.4)] tracking-wide cursor-pointer hover:scale-105 active:scale-95"
-                      title="Download Maxhub4u App"
+              {/* Mobile Browser: When ad triggers, 5s Skip Ad button appears */}
+              {screen !== "login" && screen !== "pin_check" && isMobileOrTablet && mobileAdTab && (
+                <div className="flex items-center animate-fadeIn">
+                  {mobileAdSkipReady ? (
+                    <button
+                      type="button"
+                      onClick={handleSkipAd}
+                      onTouchEnd={handleSkipAd}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 active:scale-95 text-white font-black text-xs sm:text-sm rounded-full shadow-[0_0_20px_rgba(239,68,68,0.95)] border border-white/50 cursor-pointer animate-pulse touch-manipulation select-none"
+                      title="Cut ad and continue"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Get APP</span>
-                    </a>
-                  )
-                )
+                      <SkipForward className="w-4 h-4" />
+                      <span>Skip Ad ✕</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-amber-300 bg-amber-950/95 px-3.5 py-1.5 rounded-full border border-amber-500/60 shadow-inner">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                      <span>Skip in {skipCountdown}s</span>
+                    </div>
+                  )}
+                </div>
               )}
 
               {currentUserEmail && (
@@ -2849,6 +2929,25 @@ export default function App() {
                   <ArrowLeft className="w-4 h-4" /> View Public Page
                 </button>
               </div>
+
+              {firestoreQuotaExceeded && (
+                <div className="mb-6 bg-amber-950/60 border border-amber-500/40 rounded-xl p-4 text-sm text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-amber-300">Firestore Daily Free Read Quota Reached</p>
+                    <p className="text-xs text-amber-200/80 mt-0.5">
+                      Cached movies are shown right now. Daily read limits reset tomorrow, or you can upgrade the database in Firebase Console.
+                    </p>
+                  </div>
+                  <a
+                    href="https://console.firebase.google.com/project/auspicious-woods-707pf/firestore/databases/ai-studio-1bf586e0-99a1-4e17-a44d-7305d9d2d2a4/data?openUpgradeDialog=true"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs px-3.5 py-2 rounded-lg transition-colors text-center"
+                  >
+                    Open Firebase Database
+                  </a>
+                </div>
+              )}
 
               {/* Enterprise Security Operations Center (SOC) - Hidden on Mobile, Only for Laptop */}
               <div className="hidden md:block bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-900 border border-emerald-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden mb-8">
@@ -3334,150 +3433,66 @@ export default function App() {
                         </button>
                       </div>
                       <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              620p Package URL
-                            </label>
-                            <DebouncedInput type="url"
-                              value={link620p}
-                               onChange={(val: string) => setLink620p(val)} 
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
+                        {[
+                          { key: "620p", label: "620p Package URL", sizeLabel: "620p File Size (Optional)", urlVal: link620p, setUrl: setLink620p, sizeVal: size620p, setSize: setSize620p, sizePlaceholder: "e.g., 300 MB" },
+                          { key: "720p", label: "720p Package URL", sizeLabel: "720p File Size (Optional)", urlVal: link720p, setUrl: setLink720p, sizeVal: size720p, setSize: setSize720p, sizePlaceholder: "e.g., 700 MB" },
+                          { key: "720pHevc", label: "720p HEVC Package URL", sizeLabel: "720p HEVC File Size", urlVal: link720pHevc, setUrl: setLink720pHevc, sizeVal: size720pHevc, setSize: setSize720pHevc, sizePlaceholder: "e.g., 400 MB" },
+                          { key: "1080p", label: "1080p Package URL", sizeLabel: "1080p File Size (Optional)", urlVal: link1080p, setUrl: setLink1080p, sizeVal: size1080p, setSize: setSize1080p, sizePlaceholder: "e.g., 1.5 GB" },
+                          { key: "1080pHevc", label: "1080p HEVC Package URL", sizeLabel: "1080p HEVC File Size", urlVal: link1080pHevc, setUrl: setLink1080pHevc, sizeVal: size1080pHevc, setSize: setSize1080pHevc, sizePlaceholder: "e.g., 800 MB" },
+                          { key: "4k", label: "4K Package URL", sizeLabel: "4K File Size", urlVal: link4k, setUrl: setLink4k, sizeVal: size4k, setSize: setSize4k, sizePlaceholder: "e.g., 4.5 GB" },
+                        ].map((item) => (
+                          <div key={item.key} className="relative bg-slate-950/35 border border-slate-800/80 rounded-xl p-3 space-y-2.5">
+                            <div className="flex items-center justify-end">
+                              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition-colors" title="Tick to add centered heading above this link">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(openLinkHeadingBoxes[item.key])}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setOpenLinkHeadingBoxes((prev) => ({ ...prev, [item.key]: checked }));
+                                  }}
+                                  className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                                />
+                                <span>Head Note</span>
+                              </label>
+                            </div>
+                            {openLinkHeadingBoxes[item.key] && (
+                              <input
+                                type="text"
+                                value={linkHeadings[item.key] || ""}
+                                onChange={(e) => setLinkHeadings((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                                placeholder="Write center heading above this link..."
+                                className="w-full bg-slate-900 border border-emerald-500/50 rounded-lg px-3 py-2 text-amber-200 placeholder-slate-500 text-xs text-center focus:ring-1 focus:ring-emerald-400 outline-none transition-all"
+                              />
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
+                                  {item.label}
+                                </label>
+                                <DebouncedInput
+                                  type="url"
+                                  value={item.urlVal}
+                                  onChange={(val: string) => item.setUrl(val)}
+                                  placeholder="https://..."
+                                  className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
+                                  {item.sizeLabel}
+                                </label>
+                                <DebouncedInput
+                                  type="text"
+                                  value={item.sizeVal}
+                                  onChange={(val: string) => item.setSize(val)}
+                                  placeholder={item.sizePlaceholder}
+                                  className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
+                                />
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              620p File Size (Optional)
-                            </label>
-                            <DebouncedInput type="text"
-                              value={size620p}
-                               onChange={(val: string) => setSize620p(val)} 
-                              placeholder="e.g., 300 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p Package URL
-                            </label>
-                            <DebouncedInput type="url"
-                              value={link720p}
-                               onChange={(val: string) => setLink720p(val)} 
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p File Size (Optional)
-                            </label>
-                            <DebouncedInput type="text"
-                              value={size720p}
-                               onChange={(val: string) => setSize720p(val)} 
-                              placeholder="e.g., 700 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p Package URL
-                            </label>
-                            <DebouncedInput type="url"
-                              value={link1080p}
-                               onChange={(val: string) => setLink1080p(val)} 
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p File Size (Optional)
-                            </label>
-                            <DebouncedInput type="text"
-                              value={size1080p}
-                               onChange={(val: string) => setSize1080p(val)} 
-                              placeholder="e.g., 1.5 GB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p HEVC Package URL
-                            </label>
-                            <DebouncedInput type="url"
-                              value={link720pHevc}
-                               onChange={(val: string) => setLink720pHevc(val)} 
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p HEVC File Size
-                            </label>
-                            <DebouncedInput type="text"
-                              value={size720pHevc}
-                               onChange={(val: string) => setSize720pHevc(val)} 
-                              placeholder="e.g., 400 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p HEVC Package URL
-                            </label>
-                            <DebouncedInput type="url"
-                              value={link1080pHevc}
-                               onChange={(val: string) => setLink1080pHevc(val)} 
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p HEVC File Size
-                            </label>
-                            <DebouncedInput type="text"
-                              value={size1080pHevc}
-                               onChange={(val: string) => setSize1080pHevc(val)} 
-                              placeholder="e.g., 800 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              4K Package URL
-                            </label>
-                            <DebouncedInput type="url"
-                              value={link4k}
-                               onChange={(val: string) => setLink4k(val)} 
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              4K File Size
-                            </label>
-                            <DebouncedInput type="text"
-                              value={size4k}
-                               onChange={(val: string) => setSize4k(val)} 
-                              placeholder="e.g., 4.5 GB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                             />
-                          </div>
-                        </div>
+                        ))}
 
                         {/* Extra Links Section */}
                         <div className="pt-4 border-t border-slate-800">
@@ -3485,7 +3500,7 @@ export default function App() {
                             <h4 className="text-sm font-bold text-slate-300">Additional Download Links</h4>
                             <button
                               type="button"
-                              onClick={() => setExtraLinks([...extraLinks, { name: "", url: "", size: "" }])}
+                              onClick={() => setExtraLinks([...extraLinks, { name: "", url: "", size: "", heading: "", showHeading: false }])}
                               className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-md transition-colors flex items-center gap-1"
                             >
                               <span>+</span> Add Custom Link
@@ -3493,61 +3508,91 @@ export default function App() {
                           </div>
                           <div className="space-y-4">
                             {extraLinks.map((link, idx) => (
-                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-4 relative bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-400 mb-1">Name/Quality</label>
-                                  <input
-                                    type="text"
-                                    value={link.name}
-                                    onChange={(e) => {
-                                      const newLinks = [...extraLinks];
-                                      newLinks[idx].name = e.target.value;
-                                      setExtraLinks(newLinks);
-                                    }}
-                                    placeholder="e.g., 720p HEVC"
-                                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-400 mb-1">URL</label>
-                                  <input
-                                    type="url"
-                                    value={link.url}
-                                    onChange={(e) => {
-                                      const newLinks = [...extraLinks];
-                                      newLinks[idx].url = e.target.value;
-                                      setExtraLinks(newLinks);
-                                    }}
-                                    placeholder="https://..."
-                                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
-                                  />
-                                </div>
-                                <div className="relative">
-                                  <label className="block text-xs font-medium text-slate-400 mb-1">Size</label>
-                                  <div className="flex gap-2">
+                              <div key={idx} className="relative bg-slate-900/50 p-4 rounded-xl border border-slate-800 space-y-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition-colors" title="Tick to add centered heading above this link">
                                     <input
-                                      type="text"
-                                      value={link.size}
+                                      type="checkbox"
+                                      checked={Boolean(link.showHeading)}
                                       onChange={(e) => {
                                         const newLinks = [...extraLinks];
-                                        newLinks[idx].size = e.target.value;
+                                        newLinks[idx].showHeading = e.target.checked;
                                         setExtraLinks(newLinks);
                                       }}
-                                      placeholder="e.g., 400 MB"
+                                      className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                                    />
+                                    <span>Head Note</span>
+                                  </label>
+                                </div>
+                                {link.showHeading && (
+                                  <input
+                                    type="text"
+                                    value={link.heading || ""}
+                                    onChange={(e) => {
+                                      const newLinks = [...extraLinks];
+                                      newLinks[idx].heading = e.target.value;
+                                      setExtraLinks(newLinks);
+                                    }}
+                                    placeholder="Write center heading above this link..."
+                                    className="w-full bg-slate-950 border border-emerald-500/50 rounded-lg px-3 py-2 text-amber-200 placeholder-slate-500 text-xs text-center focus:ring-1 focus:ring-emerald-400 outline-none transition-all"
+                                  />
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Name/Quality</label>
+                                    <input
+                                      type="text"
+                                      value={link.name}
+                                      onChange={(e) => {
+                                        const newLinks = [...extraLinks];
+                                        newLinks[idx].name = e.target.value;
+                                        setExtraLinks(newLinks);
+                                      }}
+                                      placeholder="e.g., 720p HEVC"
                                       className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">URL</label>
+                                    <input
+                                      type="url"
+                                      value={link.url}
+                                      onChange={(e) => {
                                         const newLinks = [...extraLinks];
-                                        newLinks.splice(idx, 1);
+                                        newLinks[idx].url = e.target.value;
                                         setExtraLinks(newLinks);
                                       }}
-                                      className="bg-red-900/30 text-red-400 hover:bg-red-900/50 p-2 rounded-lg transition-colors flex items-center justify-center shrink-0"
-                                      title="Remove Link"
-                                    >
-                                      ✕
-                                    </button>
+                                      placeholder="https://..."
+                                      className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
+                                    />
+                                  </div>
+                                  <div className="relative">
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Size</label>
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={link.size}
+                                        onChange={(e) => {
+                                          const newLinks = [...extraLinks];
+                                          newLinks[idx].size = e.target.value;
+                                          setExtraLinks(newLinks);
+                                        }}
+                                        placeholder="e.g., 400 MB"
+                                        className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const newLinks = [...extraLinks];
+                                          newLinks.splice(idx, 1);
+                                          setExtraLinks(newLinks);
+                                        }}
+                                        className="bg-red-900/30 text-red-400 hover:bg-red-900/50 p-2 rounded-lg transition-colors flex items-center justify-center shrink-0"
+                                        title="Remove Link"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -3637,6 +3682,9 @@ export default function App() {
                               setSize720pHevc("");
                               setSize1080pHevc("");
                               setSize4k("");
+                              setExtraLinks([]);
+                              setLinkHeadings({});
+                              setOpenLinkHeadingBoxes({});
                               setIsMovieHighlight(false);
                               setIsLiveStream(false);
                               setLiveStreamLink("");
@@ -3912,162 +3960,66 @@ export default function App() {
                         </button>
                       </div>
                       <div className="space-y-4 mb-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              620p Combo Pack URL
-                            </label>
-                            <input
-                              type="url"
-                              value={seriesLink620p}
-                              onChange={(e) => setSeriesLink620p(e.target.value)}
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
+                        {[
+                          { key: "620p", label: "620p Combo Pack URL", sizeLabel: "620p Combo Pack Size (Optional)", urlVal: seriesLink620p, setUrl: setSeriesLink620p, sizeVal: seriesSize620p, setSize: setSeriesSize620p, sizePlaceholder: "e.g., 300 MB" },
+                          { key: "720p", label: "720p Combo Pack URL", sizeLabel: "720p Combo Pack Size (Optional)", urlVal: seriesLink720p, setUrl: setSeriesLink720p, sizeVal: seriesSize720p, setSize: setSeriesSize720p, sizePlaceholder: "e.g., 700 MB" },
+                          { key: "720pHevc", label: "720p HEVC Combo URL", sizeLabel: "720p HEVC Combo Size", urlVal: seriesLink720pHevc, setUrl: setSeriesLink720pHevc, sizeVal: seriesSize720pHevc, setSize: setSeriesSize720pHevc, sizePlaceholder: "e.g., 400 MB" },
+                          { key: "1080p", label: "1080p Combo Pack URL", sizeLabel: "1080p Combo Pack Size (Optional)", urlVal: seriesLink1080p, setUrl: setSeriesLink1080p, sizeVal: seriesSize1080p, setSize: setSeriesSize1080p, sizePlaceholder: "e.g., 1.5 GB" },
+                          { key: "1080pHevc", label: "1080p HEVC Combo URL", sizeLabel: "1080p HEVC Combo Size", urlVal: seriesLink1080pHevc, setUrl: setSeriesLink1080pHevc, sizeVal: seriesSize1080pHevc, setSize: setSeriesSize1080pHevc, sizePlaceholder: "e.g., 800 MB" },
+                          { key: "4k", label: "4K Combo URL", sizeLabel: "4K Combo Size", urlVal: seriesLink4k, setUrl: setSeriesLink4k, sizeVal: seriesSize4k, setSize: setSeriesSize4k, sizePlaceholder: "e.g., 4.5 GB" },
+                        ].map((item) => (
+                          <div key={item.key} className="relative bg-slate-950/35 border border-slate-800/80 rounded-xl p-3 space-y-2.5">
+                            <div className="flex items-center justify-end">
+                              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition-colors" title="Tick to add centered heading above this combo link">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(openSeriesLinkHeadingBoxes[item.key])}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setOpenSeriesLinkHeadingBoxes((prev) => ({ ...prev, [item.key]: checked }));
+                                  }}
+                                  className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                                />
+                                <span>Head Note</span>
+                              </label>
+                            </div>
+                            {openSeriesLinkHeadingBoxes[item.key] && (
+                              <input
+                                type="text"
+                                value={seriesLinkHeadings[item.key] || ""}
+                                onChange={(e) => setSeriesLinkHeadings((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                                placeholder="Write center heading above this link..."
+                                className="w-full bg-slate-900 border border-emerald-500/50 rounded-lg px-3 py-2 text-amber-200 placeholder-slate-500 text-xs text-center focus:ring-1 focus:ring-emerald-400 outline-none transition-all"
+                              />
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
+                                  {item.label}
+                                </label>
+                                <input
+                                  type="url"
+                                  value={item.urlVal}
+                                  onChange={(e) => item.setUrl(e.target.value)}
+                                  placeholder="https://..."
+                                  className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1">
+                                  {item.sizeLabel}
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.sizeVal}
+                                  onChange={(e) => item.setSize(e.target.value)}
+                                  placeholder={item.sizePlaceholder}
+                                  className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
+                                />
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              620p Combo Pack Size (Optional)
-                            </label>
-                            <input
-                              type="text"
-                              value={seriesSize620p}
-                              onChange={(e) => setSeriesSize620p(e.target.value)}
-                              placeholder="e.g., 300 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p Combo Pack URL
-                            </label>
-                            <input
-                              type="url"
-                              value={seriesLink720p}
-                              onChange={(e) => setSeriesLink720p(e.target.value)}
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p Combo Pack Size (Optional)
-                            </label>
-                            <input
-                              type="text"
-                              value={seriesSize720p}
-                              onChange={(e) => setSeriesSize720p(e.target.value)}
-                              placeholder="e.g., 700 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p Combo Pack URL
-                            </label>
-                            <input
-                              type="url"
-                              value={seriesLink1080p}
-                              onChange={(e) => setSeriesLink1080p(e.target.value)}
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p Combo Pack Size (Optional)
-                            </label>
-                            <input
-                              type="text"
-                              value={seriesSize1080p}
-                              onChange={(e) => setSeriesSize1080p(e.target.value)}
-                              placeholder="e.g., 1.5 GB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p HEVC Combo URL
-                            </label>
-                            <input
-                              type="url"
-                              value={seriesLink720pHevc}
-                              onChange={(e) => setSeriesLink720pHevc(e.target.value)}
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              720p HEVC Combo Size
-                            </label>
-                            <input
-                              type="text"
-                              value={seriesSize720pHevc}
-                              onChange={(e) => setSeriesSize720pHevc(e.target.value)}
-                              placeholder="e.g., 400 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p HEVC Combo URL
-                            </label>
-                            <input
-                              type="url"
-                              value={seriesLink1080pHevc}
-                              onChange={(e) => setSeriesLink1080pHevc(e.target.value)}
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              1080p HEVC Combo Size
-                            </label>
-                            <input
-                              type="text"
-                              value={seriesSize1080pHevc}
-                              onChange={(e) => setSeriesSize1080pHevc(e.target.value)}
-                              placeholder="e.g., 800 MB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              4K Combo URL
-                            </label>
-                            <input
-                              type="url"
-                              value={seriesLink4k}
-                              onChange={(e) => setSeriesLink4k(e.target.value)}
-                              placeholder="https://..."
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">
-                              4K Combo Size
-                            </label>
-                            <input
-                              type="text"
-                              value={seriesSize4k}
-                              onChange={(e) => setSeriesSize4k(e.target.value)}
-                              placeholder="e.g., 4.5 GB"
-                              className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm"
-                            />
-                          </div>
-                        </div>
+                        ))}
 
                         {/* Extra Links Section */}
                         <div className="pt-4 border-t border-slate-800">
@@ -4075,7 +4027,7 @@ export default function App() {
                             <h4 className="text-sm font-bold text-slate-300">Additional Combo Packs</h4>
                             <button
                               type="button"
-                              onClick={() => setSeriesExtraLinks([...seriesExtraLinks, { name: "", url: "", size: "" }])}
+                              onClick={() => setSeriesExtraLinks([...seriesExtraLinks, { name: "", url: "", size: "", heading: "", showHeading: false }])}
                               className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-md transition-colors flex items-center gap-1"
                             >
                               <span>+</span> Add Custom Link
@@ -4083,61 +4035,91 @@ export default function App() {
                           </div>
                           <div className="space-y-4">
                             {seriesExtraLinks.map((link, idx) => (
-                              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-4 relative bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-400 mb-1">Name/Quality</label>
-                                  <input
-                                    type="text"
-                                    value={link.name}
-                                    onChange={(e) => {
-                                      const newLinks = [...seriesExtraLinks];
-                                      newLinks[idx].name = e.target.value;
-                                      setSeriesExtraLinks(newLinks);
-                                    }}
-                                    placeholder="e.g., 720p HEVC"
-                                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-400 mb-1">URL</label>
-                                  <input
-                                    type="url"
-                                    value={link.url}
-                                    onChange={(e) => {
-                                      const newLinks = [...seriesExtraLinks];
-                                      newLinks[idx].url = e.target.value;
-                                      setSeriesExtraLinks(newLinks);
-                                    }}
-                                    placeholder="https://..."
-                                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
-                                  />
-                                </div>
-                                <div className="relative">
-                                  <label className="block text-xs font-medium text-slate-400 mb-1">Size</label>
-                                  <div className="flex gap-2">
+                              <div key={idx} className="relative bg-slate-900/50 p-4 rounded-xl border border-slate-800 space-y-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition-colors" title="Tick to add centered heading above this link">
                                     <input
-                                      type="text"
-                                      value={link.size}
+                                      type="checkbox"
+                                      checked={Boolean(link.showHeading)}
                                       onChange={(e) => {
                                         const newLinks = [...seriesExtraLinks];
-                                        newLinks[idx].size = e.target.value;
+                                        newLinks[idx].showHeading = e.target.checked;
                                         setSeriesExtraLinks(newLinks);
                                       }}
-                                      placeholder="e.g., 400 MB"
+                                      className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                                    />
+                                    <span>Head Note</span>
+                                  </label>
+                                </div>
+                                {link.showHeading && (
+                                  <input
+                                    type="text"
+                                    value={link.heading || ""}
+                                    onChange={(e) => {
+                                      const newLinks = [...seriesExtraLinks];
+                                      newLinks[idx].heading = e.target.value;
+                                      setSeriesExtraLinks(newLinks);
+                                    }}
+                                    placeholder="Write center heading above this link..."
+                                    className="w-full bg-slate-950 border border-emerald-500/50 rounded-lg px-3 py-2 text-amber-200 placeholder-slate-500 text-xs text-center focus:ring-1 focus:ring-emerald-400 outline-none transition-all"
+                                  />
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Name/Quality</label>
+                                    <input
+                                      type="text"
+                                      value={link.name}
+                                      onChange={(e) => {
+                                        const newLinks = [...seriesExtraLinks];
+                                        newLinks[idx].name = e.target.value;
+                                        setSeriesExtraLinks(newLinks);
+                                      }}
+                                      placeholder="e.g., 720p HEVC"
                                       className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">URL</label>
+                                    <input
+                                      type="url"
+                                      value={link.url}
+                                      onChange={(e) => {
                                         const newLinks = [...seriesExtraLinks];
-                                        newLinks.splice(idx, 1);
+                                        newLinks[idx].url = e.target.value;
                                         setSeriesExtraLinks(newLinks);
                                       }}
-                                      className="bg-red-900/30 text-red-400 hover:bg-red-900/50 p-2 rounded-lg transition-colors flex items-center justify-center shrink-0"
-                                      title="Remove Link"
-                                    >
-                                      ✕
-                                    </button>
+                                      placeholder="https://..."
+                                      className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
+                                    />
+                                  </div>
+                                  <div className="relative">
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Size</label>
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={link.size}
+                                        onChange={(e) => {
+                                          const newLinks = [...seriesExtraLinks];
+                                          newLinks[idx].size = e.target.value;
+                                          setSeriesExtraLinks(newLinks);
+                                        }}
+                                        placeholder="e.g., 400 MB"
+                                        className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white outline-none text-sm"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const newLinks = [...seriesExtraLinks];
+                                          newLinks.splice(idx, 1);
+                                          setSeriesExtraLinks(newLinks);
+                                        }}
+                                        className="bg-red-900/30 text-red-400 hover:bg-red-900/50 p-2 rounded-lg transition-colors flex items-center justify-center shrink-0"
+                                        title="Remove Link"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -4151,7 +4133,20 @@ export default function App() {
                       <div className="space-y-4">
                         {episodes.map((ep, index) => (
                           <div key={index} className="bg-slate-950/70 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl space-y-3 transition-colors">
-                            <div className="flex items-center justify-between">
+                            {ep.showHeading && (
+                              <input
+                                type="text"
+                                value={ep.heading || ""}
+                                onChange={(e) => {
+                                  const newEps = [...episodes];
+                                  newEps[index].heading = e.target.value;
+                                  setEpisodes(newEps);
+                                }}
+                                placeholder="Write center heading above this episode..."
+                                className="w-full bg-slate-900 border border-emerald-500/50 rounded-lg px-3 py-2 text-amber-200 placeholder-slate-500 text-xs text-center focus:ring-1 focus:ring-emerald-400 outline-none transition-all"
+                              />
+                            )}
+                            <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
                                 <span className="w-7 h-7 rounded-lg bg-red-950/70 border border-red-900/60 text-red-400 font-bold text-xs flex items-center justify-center">
                                   {index + 1}
@@ -4168,17 +4163,32 @@ export default function App() {
                                   className="bg-transparent font-bold text-white text-sm border-b border-dashed border-slate-700 focus:border-red-500 outline-none pb-0.5"
                                 />
                               </div>
-                              {episodes.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEpisodes(episodes.filter((_, i) => i !== index));
-                                  }}
-                                  className="text-slate-500 hover:text-red-400 text-xs px-2.5 py-1 rounded-md bg-slate-900 hover:bg-red-950/40 border border-slate-800 transition-colors"
-                                >
-                                  ✕ Remove
-                                </button>
-                              )}
+                              <div className="flex items-center gap-2.5">
+                                <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition-colors" title="Tick to add centered heading above this episode">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(ep.showHeading)}
+                                    onChange={(e) => {
+                                      const newEps = [...episodes];
+                                      newEps[index].showHeading = e.target.checked;
+                                      setEpisodes(newEps);
+                                    }}
+                                    className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                                  />
+                                  <span>Head Note</span>
+                                </label>
+                                {episodes.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEpisodes(episodes.filter((_, i) => i !== index));
+                                    }}
+                                    className="text-slate-500 hover:text-red-400 text-xs px-2.5 py-1 rounded-md bg-slate-900 hover:bg-red-950/40 border border-slate-800 transition-colors"
+                                  >
+                                    ✕ Remove
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -4237,7 +4247,7 @@ export default function App() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setEpisodes([...episodes, { link: "", watchOnlineUrl: "", note: "", title: "" }])}
+                        onClick={() => setEpisodes([...episodes, { link: "", watchOnlineUrl: "", note: "", title: "", heading: "", showHeading: false }])}
                         className="mt-4 px-4 py-2 bg-red-950/50 hover:bg-red-900/50 text-red-400 hover:text-red-300 border border-red-900/50 rounded-xl text-sm font-bold flex items-center gap-2 transition-all cursor-pointer"
                       >
                         <Plus className="w-4 h-4" /> Add Next Episode
@@ -4286,7 +4296,7 @@ export default function App() {
                               setSeriesDesc("");
                               setSeriesImage(null);
                               setSeriesScreenshots([]);
-                              setEpisodes([{ link: "", watchOnlineUrl: "", note: "", title: "" }]);
+                              setEpisodes([{ link: "", watchOnlineUrl: "", note: "", title: "", heading: "", showHeading: false }]);
                               setSeriesLink620p("");
                               setSeriesLink720p("");
                               setSeriesLink1080p("");
@@ -4299,6 +4309,9 @@ export default function App() {
                               setSeriesSize720pHevc("");
                               setSeriesSize1080pHevc("");
                               setSeriesSize4k("");
+                              setSeriesExtraLinks([]);
+                              setSeriesLinkHeadings({});
+                              setOpenSeriesLinkHeadingBoxes({});
                               setIsSeriesHighlight(false);
                               setSeriesTrailerUrl("");
                             }}
@@ -5143,142 +5156,297 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="w-full max-w-[1600px] mx-auto px-4 py-8 sm:px-6 lg:px-12"
+              className="w-full max-w-[1600px] mx-auto px-4 py-8 sm:px-6 lg:px-12 overflow-x-hidden"
             >
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-                
-              </div>
+              <div className="mb-2" />
               
 
 
-              <div className="flex flex-col gap-10 relative">
+              <div
+                className="flex flex-col gap-6 relative"
+                style={{
+                  fontFamily: "'Courier New', Courier, monospace",
+                  paddingLeft: "2px",
+                }}
+              >
 
-                {/* UP: Poster & Description Layout */}
-                <div className="flex flex-col md:flex-row gap-8 lg:gap-16 relative z-10">
-                  <motion.div
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="w-full md:w-1/3 lg:w-[350px] shrink-0"
+                {/* TOP: Side-by-Side Layout (Mobile: Title -> Poster -> 2-Row Info -> Context | Tablet/Desktop: Poster Left | Title + 1-Line Info + Context Right) */}
+                <div className="flex flex-col md:flex-row gap-6 md:gap-8 lg:gap-10 items-start relative z-10 w-full">
+                  {/* Mobile-only Title above Poster Image */}
+                  <h2
+                    className="block md:hidden w-full text-base sm:text-lg font-bold leading-snug tracking-normal"
+                    style={{
+                      color: "#e4cece",
+                      fontFamily: "Arial, sans-serif",
+                      fontStyle: "italic",
+                      textDecorationLine: "none",
+                      textAlign: "center",
+                    }}
                   >
-                    <div 
+                    {selectedMovie.title}
+                  </h2>
+
+                  {/* LEFT: Poster Image */}
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="w-full max-w-[260px] md:max-w-none md:w-[270px] lg:w-[300px] mx-auto md:mx-0 shrink-0"
+                  >
+                    <div
                       onClick={(e) => handleImageAdClick(e, 'poster')}
-                      className="aspect-[2/3] bg-slate-900 rounded-2xl overflow-hidden border border-slate-700 shadow-[0_0_30px_rgba(0,0,0,0.5)] hover:border-red-500/80 hover:shadow-[0_0_30px_rgba(239,68,68,0.35)] active:scale-[0.98] transition-all relative group cursor-pointer"
+                      className="w-full aspect-[2/3] bg-slate-900 rounded-xl overflow-hidden border border-slate-700/80 shadow-[0_0_30px_rgba(0,0,0,0.6)] hover:border-red-500/80 hover:shadow-[0_0_30px_rgba(239,68,68,0.35)] active:scale-[0.98] transition-all relative group cursor-pointer"
                       title="Click photo to view"
                     >
-                      <button onClick={(e) => { e.stopPropagation(); toggleBookmark(selectedMovie.id, e); }} className={`absolute top-4 right-4 z-30 p-3 rounded-full backdrop-blur-sm transition-all shadow-lg ${bookmarks.includes(selectedMovie.id) ? "bg-red-600/90 text-white" : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"}`}>
-                        <Bookmark className={`w-5 h-5 ${bookmarks.includes(selectedMovie.id) ? "fill-current" : ""}`} />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleBookmark(selectedMovie.id, e);
+                        }}
+                        className={`absolute top-3 right-3 z-30 p-2.5 rounded-full backdrop-blur-sm transition-all shadow-lg ${
+                          bookmarks.includes(selectedMovie.id)
+                            ? "bg-red-600/90 text-white"
+                            : "bg-slate-950/70 text-slate-300 hover:text-white hover:bg-slate-800/80"
+                        }`}
+                      >
+                        <Bookmark
+                          className={`w-5 h-5 ${
+                            bookmarks.includes(selectedMovie.id) ? "fill-current" : ""
+                          }`}
+                        />
                       </button>
-                      <img 
-                        src={selectedMovie.image} 
-                        alt={selectedMovie.title} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer pointer-events-auto" 
+                      <img
+                        src={selectedMovie.image}
+                        alt={selectedMovie.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer pointer-events-auto"
                       />
                       <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/10 transition-colors pointer-events-none" />
                     </div>
                   </motion.div>
 
+                  {/* RIGHT: Compact Heading + Single-Row Info/Live/Rating Strip + Narrative Context */}
                   <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="flex-1 flex flex-col pt-4"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex-1 min-w-0 w-full flex flex-col gap-4"
                   >
                     <h2
-                      className="text-4xl md:text-5xl font-extrabold text-white mb-2 drop-shadow-md flex items-center gap-4 flex-wrap"
+                      className="hidden md:block text-base sm:text-lg md:text-xl font-bold leading-snug tracking-normal"
                       style={{
-                        color: "#f4d6d6",
-                        fontSize: "35px",
-                        fontFamily: "Courier New",
+                        color: "#e4cece",
+                        fontFamily: "Arial, sans-serif",
+                        fontStyle: "italic",
+                        textDecorationLine: "none",
+                        textAlign: "center",
                       }}
                     >
                       {selectedMovie.title}
-                      {selectedMovie.isLiveStream && (
-                        <a
-                          href={selectedMovie.liveStreamLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => {
-                             if (isApkInstalled) {
-                               return;
-                             }
-                             if (liveStreamClickCount < 2) {
-                               e.preventDefault();
-                               window.open(DIRECT_LINK, "_blank");
-                               setLiveStreamClickCount(prev => prev + 1);
-                             } else {
-                               setLiveStreamClickCount(0);
-                             }
-                          }}
-                          className="flex items-center gap-2 bg-red-600 text-white text-[14px] uppercase tracking-wider font-bold px-4 py-1.5 rounded-full animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-transform hover:scale-105 cursor-pointer"
-                        >
-                          <span className="w-2 h-2 rounded-full bg-white"></span>
-                          Live Stream
-                        </a>
-                      )}
                     </h2>
 
-                    <div className="mb-6 flex flex-wrap items-center gap-4">
-                      {selectedMovie.category && (
-                        <span className="bg-red-950/40 text-red-400 border border-red-900/50 px-3 py-1 rounded-full text-sm font-medium tracking-wide">
-                          {Array.isArray(selectedMovie.category) ? selectedMovie.category.join(", ") : selectedMovie.category}
-                        </span>
-                      )}
+                    {/* 2-Row Metadata Strip: Row 1 = Date + Categories + 1080p/4K | Row 2 = Rating + Watch Online */}
+                    {(() => {
+                      const rawCats: string[] = Array.isArray(selectedMovie.category)
+                        ? selectedMovie.category.map((s: any) => String(s).trim()).filter(Boolean)
+                        : selectedMovie.category
+                        ? String(selectedMovie.category).split(",").map((s) => s.trim()).filter(Boolean)
+                        : [];
+                      const qualityTags: string[] = [];
+                      const t = selectedMovie.title || "";
+                      if (/4k|2160p/i.test(t)) qualityTags.push("4K UHD");
+                      else if (/1080p/i.test(t)) qualityTags.push("1080p HD");
 
-                      <div className="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-800">
-                        <div className="flex gap-1">
-                          {[1, 2, 3, 4, 5].map((star) => {
-                            const avg =
-                              selectedMovie.ratings &&
-                              selectedMovie.ratings.length > 0
-                                ? selectedMovie.ratings.reduce(
-                                    (a, b) => a + b,
-                                    0,
-                                  ) / selectedMovie.ratings.length
-                                : 0;
-                            const isFull = star <= Math.floor(avg);
-                            const isHalf =
-                              !isFull &&
-                              star === Math.ceil(avg) &&
-                              avg % 1 >= 0.5;
+                      const baseCats = rawCats.length > 0 ? rawCats : ["Movie", "HD"];
+                      const rowOneTags: string[] = Array.from(new Set([...baseCats, ...qualityTags])).slice(0, 5);
 
-                            return (
-                              <button
-                                key={star}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRateMovie(selectedMovie.id, star);
-                                }}
-                                className="hover:scale-125 transition-transform focus:outline-none"
-                                title={`Rate ${star} stars`}
+                      let formattedDate = "Nov-23rd, 2026";
+                      try {
+                        const ca = selectedMovie.createdAt;
+                        const d = ca?.toDate
+                          ? ca.toDate()
+                          : ca?.seconds
+                          ? new Date(ca.seconds * 1000)
+                          : ca
+                          ? new Date(ca)
+                          : null;
+                        if (d && !isNaN(d.getTime())) {
+                          const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                          const day = d.getDate();
+                          const suffix = day % 10 === 1 && day !== 11 ? "st" : day % 10 === 2 && day !== 12 ? "nd" : day % 10 === 3 && day !== 13 ? "rd" : "th";
+                          formattedDate = `${months[d.getMonth()]}-${day}${suffix}, ${d.getFullYear()}`;
+                        }
+                      } catch {
+                        // fallback kept
+                      }
+
+                      return (
+                        <div className="w-full flex flex-col md:flex-row md:flex-nowrap md:items-center md:justify-between gap-2.5 md:gap-2 md:overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {/* Row 1 (Mobile) / Left Part (Tab & Laptop): Blue Date Badge + Categories/HD + 1080p HD / 4K UHD */}
+                          <div className="w-full md:w-auto flex flex-wrap md:flex-nowrap items-center gap-1.5 md:shrink-0">
+                            <span className="inline-flex items-center gap-1 bg-[#2563eb] text-white text-[11px] md:text-[11px] lg:text-xs font-bold px-2 py-1 rounded-[3px] shadow-sm whitespace-nowrap shrink-0">
+                              <Calendar className="w-3.5 h-3.5 shrink-0" />
+                              <span>{formattedDate}</span>
+                            </span>
+
+                            {rowOneTags.map((tag, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 bg-white text-slate-900 text-[11px] md:text-[11px] lg:text-xs font-semibold px-2 py-1 rounded-[3px] shadow-sm whitespace-nowrap shrink-0"
                               >
-                                {isFull ? (
-                                  <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                                ) : isHalf ? (
-                                  <StarHalf className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                                ) : (
-                                  <Star className="w-4 h-4 text-slate-600 hover:text-yellow-400 transition-colors" />
-                                )}
-                            
+                                <Folder className="w-3.5 h-3.5 text-slate-700 fill-slate-700 shrink-0" />
+                                <span>{tag}</span>
+                              </span>
+                            ))}
+                          </div>
 
-                              </button>
-                            );
-                          })}
+                          {/* Row 2 (Mobile) / Right Part (Tab & Laptop): Star Rating + Red Watch Online Button Only */}
+                          <div className="w-full md:w-auto flex flex-wrap md:flex-nowrap items-center gap-2.5 md:gap-2 md:shrink-0">
+                            <div
+                              className="flex items-center gap-1.5 bg-slate-900/90 px-2.5 py-1 rounded-[3px] border border-slate-700/80 whitespace-nowrap shrink-0"
+                              style={{
+                                color: "#fbfbfb",
+                                width: "180px",
+                                marginLeft: "12px",
+                                paddingTop: "-1px",
+                                marginRight: "2000px",
+                                marginTop: "5px",
+                              }}
+                            >
+                              <div className="flex gap-1">
+                                {[1, 2, 3, 4, 5].map((star) => {
+                                  const avg =
+                                    selectedMovie.ratings &&
+                                    selectedMovie.ratings.length > 0
+                                      ? selectedMovie.ratings.reduce(
+                                          (a, b) => a + b,
+                                          0,
+                                        ) / selectedMovie.ratings.length
+                                      : 0;
+                                  const isFull = star <= Math.floor(avg);
+                                  const isHalf =
+                                    !isFull &&
+                                    star === Math.ceil(avg) &&
+                                    avg % 1 >= 0.5;
+
+                                  return (
+                                    <button
+                                      key={star}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRateMovie(selectedMovie.id, star);
+                                      }}
+                                      className="hover:scale-125 transition-transform focus:outline-none cursor-pointer"
+                                      title={`Rate ${star} stars`}
+                                    >
+                                      {isFull ? (
+                                        <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                                      ) : isHalf ? (
+                                        <StarHalf className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                                      ) : (
+                                        <Star className="w-3.5 h-3.5 text-slate-600 hover:text-yellow-400 transition-colors" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <span className="text-[11px] sm:text-xs text-slate-300 font-semibold ml-0.5">
+                                {selectedMovie.ratings &&
+                                selectedMovie.ratings.length > 0
+                                  ? `${(selectedMovie.ratings.reduce((a, b) => a + b, 0) / selectedMovie.ratings.length).toFixed(1)} (${selectedMovie.ratings.length})`
+                                  : "Unrated"}
+                              </span>
+                            </div>
+
+                            {selectedMovie.isLiveStream && (
+                              <a
+                                href={selectedMovie.liveStreamLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => {
+                                  if (isApkInstalled) {
+                                    return;
+                                  }
+                                  if (liveStreamClickCount < 2) {
+                                    e.preventDefault();
+                                    window.open(DIRECT_LINK, "_blank");
+                                    setLiveStreamClickCount(prev => prev + 1);
+                                  } else {
+                                    setLiveStreamClickCount(0);
+                                  }
+                                }}
+                                title="Watch Online"
+                                className="inline-flex lg:hidden items-center justify-center gap-1.5 bg-red-600 hover:bg-red-500 text-white text-xs uppercase tracking-wider font-bold px-3.5 py-1.5 rounded-full animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.55)] transition-transform hover:scale-105 cursor-pointer whitespace-nowrap shrink-0"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-white shrink-0"></span>
+                                <span>Watch Online</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-sm text-slate-400 font-medium ml-1">
-                          {selectedMovie.ratings &&
-                          selectedMovie.ratings.length > 0
-                            ? `${(selectedMovie.ratings.reduce((a, b) => a + b, 0) / selectedMovie.ratings.length).toFixed(1)} (${selectedMovie.ratings.length})`
-                            : "Unrated"}
-                        </span>
-                      </div>
-                    </div>
+                      );
+                    })()}
 
-                    <div className="bg-slate-900/60 rounded-2xl p-6 md:p-8 border border-slate-800 backdrop-blur-md h-full shadow-[0_0_20px_rgba(0,0,0,0.3)]">
-                      <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    {/* Narrative Context Box Directly Below Info Row (matches right column width, keeps font size) */}
+                    <div
+                      className="w-full bg-slate-900/60 rounded-2xl p-5 md:p-6 border border-slate-800 backdrop-blur-md shadow-[0_0_20px_rgba(0,0,0,0.3)]"
+                      style={{
+                        paddingTop: "70px",
+                        paddingLeft: "21px",
+                        paddingRight: "25px",
+                        marginTop: "8px",
+                      }}
+                    >
+                      <h4
+                        className="text-sm font-bold text-red-400 uppercase tracking-widest flex items-center gap-2"
+                        style={{
+                          marginTop: "-55px",
+                          marginBottom: "23px",
+                        }}
+                      >
                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />{" "}
-                        Narrative Context</h4>
-    
-                      <p className="text-slate-300 leading-relaxed text-lg font-light mb-6">
-                        {selectedMovie.description}
+                        Narrative Context
+                      </h4>
+
+                      <p
+                        className="text-slate-300 leading-relaxed text-sm sm:text-base font-light space-y-1.5"
+                        style={{
+                          paddingLeft: "4px",
+                          marginLeft: "-3px",
+                          marginTop: "-14px",
+                        }}
+                      >
+                        {(() => {
+                          const raw = (selectedMovie.description || "").trim();
+                          if (!raw) return null;
+                          const labelPattern =
+                            "(?:i?M[BD]{2}\\s*Rating\\s*(?::|(?=\\s*\\d|\\s*x\\/10))|Release\\s*Date\\s*:|No\\.?\\s*of\\s*Episodes?\\s*(?::|(?=\\s*\\d))|Rating\\s*:|Genres?\\s*:|Stars?\\s*:|Cast\\s*:|Starring\\s*:|Directors?\\s*:|Creators?\\s*:|Writers?\\s*:|Episodes?\\s*:|Runtime\\s*:|Duration\\s*:|Year\\s*:|Country\\s*:|Language\\s*:|Audio\\s*:|Subtitles?\\s*:|Quality\\s*:|Format\\s*:|Size\\s*:|Storyline\\s*:|Plot\\s*:|Synopsis\\s*:)";
+                          const splitInline = raw.replace(
+                            new RegExp(`\\s+(${labelPattern})`, "gi"),
+                            "\n$1"
+                          );
+                          const lines = splitInline
+                            .split(/\r?\n/)
+                            .map((line) => line.trim())
+                            .filter(Boolean);
+
+                          const labelMatchRe = new RegExp(`^(${labelPattern})(.*)$`, "i");
+
+                          return lines.map((line, idx) => {
+                            const matched = line.match(labelMatchRe);
+                            return (
+                              <span key={idx} className="block">
+                                {matched ? (
+                                  <>
+                                    <span className="font-semibold text-[#eb1f1f]">
+                                      {matched[1]}
+                                    </span>
+                                    {matched[2]}
+                                  </>
+                                ) : (
+                                  line
+                                )}
+                              </span>
+                            );
+                          });
+                        })()}
                       </p>
                     </div>
                   </motion.div>
@@ -5290,26 +5458,47 @@ export default function App() {
                     <motion.div
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="w-full pt-4"
+                      className="w-full pt-2"
                     >
-                      <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-6 flex items-center gap-2 border-b border-slate-800 pb-2">
-                        <ImageIcon className="w-5 h-5" /> Quality Proof / Assets</h4>
-    
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        {selectedMovie.screenshots.map((img, i) => (
-                          <div
-                            key={i}
-                            onClick={(e) => handleImageAdClick(e, 'screenshot')}
-                            className="aspect-video bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow-lg hover:border-red-500/80 hover:shadow-[0_0_25px_rgba(239,68,68,0.3)] active:scale-[0.98] transition-all cursor-pointer relative group"
-                            title="Click screenshot"
-                          >
-                            <ImageWithSkeleton
-                              src={img}
-                              alt={`Screenshot ${i + 1}`}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
-                            />
-                          </div>
-                        ))}
+                      <div className="w-full border-t border-white/20 pt-3 pb-3 text-center px-2">
+                        <p
+                          className="italic text-sm sm:text-base leading-relaxed font-medium max-w-4xl mx-auto mb-1.5"
+                          style={{
+                            color: "#ffffff",
+                            paddingTop: "2px",
+                            paddingBottom: "2px",
+                          }}
+                        >
+                          Download {selectedMovie.title},
+                          <br />
+                          Watch {selectedMovie.title.split(/[(\[|]/)[0].trim()} {selectedMovie.type === "series" ? "Full Series" : "Full Movie"} Online Free on MAXHUB4U !
+                        </p>
+
+                        <h4
+                          className="w-full text-center text-[#ff1111] font-bold italic text-lg sm:text-xl tracking-wide"
+                          style={{ fontFamily: "Arial, sans-serif" }}
+                        >
+                          : Screen-Shots :
+                        </h4>
+                      </div>
+
+                      <div className="w-full border-b border-white/20 pb-5 overflow-hidden">
+                        <div className="w-full lg:max-w-[1060px] mx-auto flex flex-wrap justify-center gap-2 lg:gap-1.5">
+                          {selectedMovie.screenshots.map((img, i) => (
+                            <div
+                              key={i}
+                              onClick={(e) => handleImageAdClick(e, 'screenshot')}
+                              className="w-full lg:w-[calc(33.333%-6px)] aspect-video bg-slate-950 overflow-hidden border border-white/10 hover:border-red-500/80 active:scale-[0.98] transition-all cursor-pointer relative group"
+                              title="Click screenshot"
+                            >
+                              <ImageWithSkeleton
+                                src={img}
+                                alt={`Screenshot ${i + 1}`}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -5317,274 +5506,612 @@ export default function App() {
                 {/* Sponsored Native Banner Ad right before Download Links (active in web and APK - exactly 2 ads on mobile/APK) */}
                 <NativeBannerAd />
 
-                {/* BOTTOM: Download Buttons */}
+                {/* BOTTOM: Download Links (Series: Combo Packs + Individual Episodes | Movies: Centered Stacked Links) */}
                 <motion.div
+                  id="download-links-section"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="w-full border-t border-slate-800/80 pt-10"
+                  className="w-full border-t border-slate-800/80 pt-8"
                 >
-                  <h4 className="text-sm font-bold text-red-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <Download className="w-5 h-5" /> Extraction Protocols</h4>
-                  
-
                   {selectedMovie.type === "series" ? (
-                    <div className="flex flex-col gap-8">
+                    <div className="w-full space-y-8">
+                      {/* Combo Packs Section: Line-to-Line Stacked Links */}
                       {(selectedMovie.link620p ||
                         selectedMovie.link720p ||
                         selectedMovie.link1080p ||
                         selectedMovie.link720pHevc ||
                         selectedMovie.link1080pHevc ||
                         selectedMovie.link4k ||
+                        selectedMovie.liveStreamLink ||
                         (selectedMovie.extraLinks && selectedMovie.extraLinks.length > 0)) && (
-                        <div>
-                          <h5 className="text-sm font-bold text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <Download className="w-4 h-4 text-red-400" /> Combo
-                            Packs
+                        <div className="w-full bg-black border-y border-white/15 divide-y divide-white/15 overflow-hidden">
+                          <div className="w-full py-2.5 sm:py-3 px-4 text-center bg-black">
+                            <span className="text-[#ff1111] font-bold italic text-lg sm:text-xl tracking-wide">
+                              : COMBO PACKS (BATCH LINKS) :
+                            </span>
+                          </div>
+
+                          {selectedMovie.link620p && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.link620p, "620p", "dl_620p_" + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {selectedMovie.linkHeadings?.["620p"] && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {selectedMovie.linkHeadings["620p"]}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: "#1e4de4",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                480p x264 {selectedMovie.size620p ? `[${selectedMovie.size620p}]` : ""}
+                              </span>
+                            </button>
+                          )}
+
+                          {selectedMovie.link720p && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.link720p, "720p", "dl_720p_" + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {selectedMovie.linkHeadings?.["720p"] && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {selectedMovie.linkHeadings["720p"]}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: "#1e4de4",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                720p x264 {selectedMovie.size720p ? `[${selectedMovie.size720p}]` : ""}
+                              </span>
+                            </button>
+                          )}
+
+                          {selectedMovie.link720pHevc && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.link720pHevc, "720p HEVC", "dl_720phevc_" + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {selectedMovie.linkHeadings?.["720pHevc"] && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {selectedMovie.linkHeadings["720pHevc"]}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: "#1e4de4",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                720p HEVC {selectedMovie.size720pHevc ? `[${selectedMovie.size720pHevc}]` : ""}
+                              </span>
+                            </button>
+                          )}
+
+                          {selectedMovie.link1080p && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.link1080p, "1080p", "dl_1080p_" + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {selectedMovie.linkHeadings?.["1080p"] && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {selectedMovie.linkHeadings["1080p"]}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: "#1e4de4",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                1080p x264 {selectedMovie.size1080p ? `[${selectedMovie.size1080p}]` : ""}
+                              </span>
+                            </button>
+                          )}
+
+                          {selectedMovie.link1080pHevc && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.link1080pHevc, "1080p HEVC", "dl_1080phevc_" + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {selectedMovie.linkHeadings?.["1080pHevc"] && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {selectedMovie.linkHeadings["1080pHevc"]}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: "#1e4de4",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                1080p HEVC {selectedMovie.size1080pHevc ? `[${selectedMovie.size1080pHevc}]` : ""}
+                              </span>
+                            </button>
+                          )}
+
+                          {selectedMovie.extraLinks && selectedMovie.extraLinks.map((link, idx) => {
+                            const lname = (link.name || "").toLowerCase();
+                            const isRed = /4k|2160p|web[-\s]*dl|\bhq\b|uhd|remux/i.test(lname);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleDownloadClick(link.url, link.name, `dl_custom_${idx}_` + selectedMovie.id);
+                                }}
+                                className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                              >
+                                {link.heading && (
+                                  <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                    {link.heading}
+                                  </span>
+                                )}
+                                <span
+                                  className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                  style={{
+                                    color: isRed ? "#ff2626" : "#1e4de4",
+                                    fontFamily: "Arial, sans-serif",
+                                    fontStyle: "normal",
+                                    textDecorationLine: "none",
+                                  }}
+                                >
+                                  {link.name} {link.size ? `[${link.size}]` : ""}
+                                </span>
+                              </button>
+                            );
+                          })}
+
+                          {selectedMovie.link4k && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.link4k, "4K", "dl_4k_" + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {selectedMovie.linkHeadings?.["4k"] && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {selectedMovie.linkHeadings["4k"]}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: "#ff2626",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                4K/2160p SDR WEB-DL PACK {selectedMovie.size4k ? `[${selectedMovie.size4k}]` : ""}
+                              </span>
+                            </button>
+                          )}
+
+                          {selectedMovie.liveStreamLink && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(selectedMovie.liveStreamLink, "live", "watch_online_" + selectedMovie.id);
+                              }}
+                              className="w-full py-2.5 sm:py-3 px-4 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              <span
+                                className="block w-full text-[#00f5cc] hover:text-[#5eead4] font-extrabold text-base sm:text-lg md:text-xl tracking-wider leading-snug"
+                                style={{ fontFamily: "Arial, sans-serif" }}
+                              >
+                                WATCH ONLiNE
+                              </span>
+                            </button>
+                          )}
+
+                          <div className="w-full py-2.5 sm:py-3 px-4 text-center bg-black">
+                            <span
+                              className="block w-full text-[#ff2626] font-bold text-xs sm:text-sm tracking-wide leading-snug"
+                              style={{ fontFamily: "Arial, sans-serif" }}
+                            >
+                              Save / Bookmark this website so you don&apos;t forget it!
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Individual Episodes Section (Exact image_4b286e88 layout) */}
+                      {selectedMovie.episodes && selectedMovie.episodes.length > 0 && (
+                        <div className="space-y-4">
+                          <h5 className="text-sm font-bold text-slate-200 uppercase tracking-widest flex items-center gap-2">
+                            <Download className="w-4 h-4 text-red-400" />
+                            <span>INDIVIDUAL EPISODES</span>
                           </h5>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {selectedMovie.link620p && (
-                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link620p, '620p', 'dl_620p_' + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download 620p {selectedMovie.size620p ? `(${selectedMovie.size620p})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                              </button>
-                            )}
-                            {selectedMovie.link720p && (
-                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720p, '720p', 'dl_720p_' + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-blue-900/50 hover:border-blue-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download 720p {selectedMovie.size720p ? `(${selectedMovie.size720p})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors relative z-10" />
-                              </button>
-                            )}
-                            {selectedMovie.link1080p && (
-                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080p, '1080p', 'dl_1080p_' + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download 1080p {selectedMovie.size1080p ? `(${selectedMovie.size1080p})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-purple-400 transition-colors relative z-10" />
-                              </button>
-                            )}
-                            {selectedMovie.link720pHevc && (
-                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720pHevc, '720p HEVC', 'dl_720phevc_' + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-green-900/50 hover:border-green-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(34,197,94,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-green-500/0 via-green-500/10 to-green-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download 720p HEVC {selectedMovie.size720pHevc ? `(${selectedMovie.size720pHevc})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-green-400 transition-colors relative z-10" />
-                              </button>
-                            )}
-                            {selectedMovie.link1080pHevc && (
-                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080pHevc, '1080p HEVC', 'dl_1080phevc_' + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-teal-900/50 hover:border-teal-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(20,184,166,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-teal-500/0 via-teal-500/10 to-teal-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download 1080p HEVC {selectedMovie.size1080pHevc ? `(${selectedMovie.size1080pHevc})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-teal-400 transition-colors relative z-10" />
-                              </button>
-                            )}
-                            {selectedMovie.link4k && (
-                              <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link4k, '4K', 'dl_4k_' + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-yellow-900/50 hover:border-yellow-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(234,179,8,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/0 via-yellow-500/10 to-yellow-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download 4K {selectedMovie.size4k ? `(${selectedMovie.size4k})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-yellow-400 transition-colors relative z-10" />
-                              </button>
-                            )}
-                            {selectedMovie.extraLinks && selectedMovie.extraLinks.map((link, idx) => (
-                              <button key={idx} onClick={(e) => { e.preventDefault(); handleDownloadClick(link.url, link.name, `dl_custom_${idx}_` + selectedMovie.id); }}
-                                className="group relative overflow-hidden bg-slate-900 border border-purple-900/50 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition-all hover:shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-[1.02]"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/10 to-purple-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                                <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10">
-                                  Download {link.name} {link.size ? `(${link.size})` : ''}
-                                </span>
-                                <Download className="w-5 h-5 text-slate-500 group-hover:text-purple-400 transition-colors relative z-10" />
-                              </button>
+
+                          <div className="space-y-3">
+                            {selectedMovie.episodes.map((ep, i) => (
+                              <div key={ep.id || i} className="space-y-1.5">
+                                {ep.heading && (
+                                  <div className="w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide px-2">
+                                    {ep.heading}
+                                  </div>
+                                )}
+                                <div
+                                  className="bg-slate-950/75 border border-slate-800 hover:border-red-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <span className="w-8 h-8 rounded-lg bg-red-600/20 border border-red-500/40 text-red-400 font-bold text-sm flex items-center justify-center shrink-0">
+                                      {i + 1}
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-white font-semibold text-sm sm:text-base truncate">
+                                        {ep.title || `Episode ${i + 1}`}
+                                      </p>
+                                      {ep.note && (
+                                        <p className="text-xs text-slate-400 truncate mt-0.5">
+                                          {ep.note}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                                    {ep.watchOnlineUrl && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleEpisodeAction(e, ep.watchOnlineUrl, `watch_${ep.id}`)}
+                                        title={
+                                          (!isMobileOrTablet && window.innerWidth > 768 && (episodeClickCounts[`laptop_watch_${ep.id}`] || episodeClickCounts[`watch_${ep.id}`] || 0) === 0)
+                                            ? "Watch Online (Click to unlock link)"
+                                            : "Watch Online"
+                                        }
+                                        className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-bold px-4 py-2 rounded-lg shadow-[0_0_15px_rgba(239,68,68,0.45)] transition-all cursor-pointer"
+                                      >
+                                        <Play className="w-3.5 h-3.5 fill-current" />
+                                        <span>Watch Online</span>
+                                      </button>
+                                    )}
+
+                                    {ep.link && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleEpisodeAction(e, ep.link, `dl_${ep.id}`)}
+                                        title={
+                                          (!isMobileOrTablet && window.innerWidth > 768 && (episodeClickCounts[`laptop_dl_${ep.id}`] || episodeClickCounts[`dl_${ep.id}`] || 0) === 0)
+                                            ? "Download (Click to unlock link)"
+                                            : "Download"
+                                        }
+                                        className="inline-flex items-center gap-1.5 bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-red-500/70 text-slate-200 text-xs sm:text-sm font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer"
+                                      >
+                                        <Download className="w-3.5 h-3.5 text-red-400" />
+                                        <span>Download</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      <div>
-                        <h5 className="text-sm font-bold text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
-                          <Download className="w-4 h-4 text-red-400" />{" "}
-                          Individual Episodes
-                        </h5>
-                        <div className="flex flex-col gap-3.5">
-                          {selectedMovie.episodes &&
-                          selectedMovie.episodes.length > 0 ? (
-                            selectedMovie.episodes.map((ep, i) => (
-                              <div
-                                key={ep.id}
-                                className="w-full bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-red-900/60 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 transition-all hover:shadow-[0_0_20px_rgba(239,68,68,0.15)] group/ep"
-                              >
-                                <div className="flex items-center gap-3.5 min-w-0">
-                                  <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-red-950/60 text-red-400 font-black border border-red-900/60 text-sm shrink-0">
-                                    {i + 1}
-                                  </span>
-                                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2.5 min-w-0">
-                                    <span className="font-bold text-slate-100 text-base sm:text-lg">
-                                      {ep.title}
-                                    </span>
-                                    {ep.note && (
-                                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)] w-max tracking-wide">
-                                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                        <span>{ep.note}</span>
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
-                                  {(ep.watchOnlineUrl || ep.link) && (
-                                    <button
-                                      onClick={(e) => handleEpisodeAction(e, ep.watchOnlineUrl || ep.link, `watch_${ep.id}`)}
-                                      className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white rounded-xl font-bold text-xs sm:text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer"
-                                       title={
-                                        (!isMobileOrTablet && window.innerWidth > 768 && (episodeClickCounts[`laptop_watch_${ep.id}`] || episodeClickCounts[`watch_${ep.id}`] || 0) === 0)
-                                          ? "Watch Online (Click to unlock link)"
-                                          : "Watch Online"
-                                      }
-                                    >
-                                      <Play className="w-3.5 h-3.5 fill-current" />
-                                      <span>Watch Online</span>
-                                    </button>
-                                  )}
-                                  {ep.link && (
-                                    <button
-                                      onClick={(e) => handleEpisodeAction(e, ep.link, `dl_${ep.id}`)}
-                                      className="flex items-center gap-1.5 px-3.5 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 hover:border-slate-500 rounded-xl text-xs sm:text-sm font-semibold transition-all shrink-0 cursor-pointer"
-                                      title={
-                                        (!isMobileOrTablet && window.innerWidth > 768 && (episodeClickCounts[`laptop_dl_${ep.id}`] || episodeClickCounts[`dl_${ep.id}`] || 0) === 0)
-                                          ? "Download Episode (Click to unlock link)"
-                                          : "Download Episode"
-                                      }
-                                    >
-                                      <Download className="w-3.5 h-3.5 text-red-400" />
-                                      <span className="hidden sm:inline">Download</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="col-span-full border border-red-900/50 bg-red-950/30 p-4 rounded-xl text-red-400 flex items-center gap-2">
-                              <AlertCircle className="w-5 h-5" /> No episodes
-                              available.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {selectedMovie.link620p && (
-                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link620p, '620p', 'dl_620p_' + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download 620p {selectedMovie.size620p ? `(${selectedMovie.size620p})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </button>
-                      )}
-                      {selectedMovie.link720p && (
-                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720p, '720p', 'dl_720p_' + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(59,130,246,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-red-600/0 via-red-600/10 to-red-600/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download 720p {selectedMovie.size720p ? `(${selectedMovie.size720p})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </button>
-                      )}
-                      {selectedMovie.link1080p && (
-                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080p, '1080p', 'dl_1080p_' + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(168,85,247,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download 1080p {selectedMovie.size1080p ? `(${selectedMovie.size1080p})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </button>
-                      )}
-                      {selectedMovie.link720pHevc && (
-                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link720pHevc, '720p HEVC', 'dl_720phevc_' + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-green-900/50 hover:border-green-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(34,197,94,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-green-500/0 via-green-500/10 to-green-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download 720p HEVC {selectedMovie.size720pHevc ? `(${selectedMovie.size720pHevc})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-green-400 transition-colors relative z-10" />
-                        </button>
-                      )}
-                      {selectedMovie.link1080pHevc && (
-                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link1080pHevc, '1080p HEVC', 'dl_1080phevc_' + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-teal-900/50 hover:border-teal-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(20,184,166,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-teal-500/0 via-teal-500/10 to-teal-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download 1080p HEVC {selectedMovie.size1080pHevc ? `(${selectedMovie.size1080pHevc})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-teal-400 transition-colors relative z-10" />
-                        </button>
-                      )}
-                      {selectedMovie.link4k && (
-                        <button onClick={(e) => { e.preventDefault(); handleDownloadClick(selectedMovie.link4k, '4K', 'dl_4k_' + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-yellow-900/50 hover:border-yellow-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(234,179,8,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/0 via-yellow-500/10 to-yellow-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download 4K {selectedMovie.size4k ? `(${selectedMovie.size4k})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-yellow-400 transition-colors relative z-10" />
-                        </button>
-                      )}
-                      {selectedMovie.extraLinks && selectedMovie.extraLinks.map((link, idx) => (
-                        <button key={idx} onClick={(e) => { e.preventDefault(); handleDownloadClick(link.url, link.name, `dl_custom_${idx}_` + selectedMovie.id); }}
-                          className="group relative overflow-hidden bg-slate-900 border border-red-900/50 hover:border-red-400 rounded-xl p-5 flex items-center justify-between transition-all hover:shadow-[0_0_25px_rgba(239,68,68,0.25)] hover:scale-[1.02]"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/10 to-red-500/0 opacity-0 group-hover:opacity-100 transform -translate-x-full group-hover:translate-x-full transition-all duration-1000 ease-in-out" />
-                          <span className="font-bold text-slate-200 group-hover:text-white transition-colors relative z-10 text-lg">
-                            Download {link.name} {link.size ? `(${link.size})` : ''}
-                          </span>
-                          <Download className="w-6 h-6 text-slate-500 group-hover:text-red-400 transition-colors relative z-10" />
-                        </button>
-                      ))}
-                      {!selectedMovie.link620p &&
+                      {(!selectedMovie.episodes || selectedMovie.episodes.length === 0) &&
+                        !selectedMovie.link620p &&
                         !selectedMovie.link720p &&
-                        !selectedMovie.link1080p && 
-                        !selectedMovie.link720pHevc && 
-                        !selectedMovie.link1080pHevc && 
-                        !selectedMovie.link4k && 
+                        !selectedMovie.link1080p &&
+                        !selectedMovie.link720pHevc &&
+                        !selectedMovie.link1080pHevc &&
+                        !selectedMovie.link4k &&
+                        !selectedMovie.liveStreamLink &&
                         (!selectedMovie.extraLinks || selectedMovie.extraLinks.length === 0) && (
-                          <div className="col-span-full border border-red-900/50 bg-red-950/30 p-4 rounded-xl text-red-400 flex items-center gap-2">
-                            <AlertCircle className="w-5 h-5" /> No extraction
-                            vectors active.
+                          <div className="py-6 text-center text-red-400 text-base font-medium">
+                            No download links available yet.
                           </div>
                         )}
+                    </div>
+                  ) : (
+                    <div className="w-full bg-black border-y border-white/15 divide-y divide-white/15 overflow-hidden">
+                      <>
+                        {/* Movie Download Links Header */}
+                        <div className="w-full py-2.5 sm:py-3 px-4 text-center bg-black">
+                          <span className="text-[#ff1111] font-bold italic text-lg sm:text-xl tracking-wide">
+                            : DOWNLOAD LINKS :
+                          </span>
+                        </div>
+
+                        {selectedMovie.link620p && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.link620p, "620p", "dl_620p_" + selectedMovie.id);
+                            }}
+                            className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            {selectedMovie.linkHeadings?.["620p"] && (
+                              <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                {selectedMovie.linkHeadings["620p"]}
+                              </span>
+                            )}
+                            <span
+                              className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                              style={{
+                                color: "#1e4de4",
+                                fontFamily: "Arial, sans-serif",
+                                fontStyle: "normal",
+                                textDecorationLine: "none",
+                              }}
+                            >
+                              480p x264 {selectedMovie.size620p ? `[${selectedMovie.size620p}]` : ""}
+                            </span>
+                          </button>
+                        )}
+
+                        {selectedMovie.link720p && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.link720p, "720p", "dl_720p_" + selectedMovie.id);
+                            }}
+                            className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            {selectedMovie.linkHeadings?.["720p"] && (
+                              <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                {selectedMovie.linkHeadings["720p"]}
+                              </span>
+                            )}
+                            <span
+                              className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                              style={{
+                                color: "#1e4de4",
+                                fontFamily: "Arial, sans-serif",
+                                fontStyle: "normal",
+                                textDecorationLine: "none",
+                              }}
+                            >
+                              720p x264 {selectedMovie.size720p ? `[${selectedMovie.size720p}]` : ""}
+                            </span>
+                          </button>
+                        )}
+
+                        {selectedMovie.link720pHevc && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.link720pHevc, "720p HEVC", "dl_720phevc_" + selectedMovie.id);
+                            }}
+                            className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            {selectedMovie.linkHeadings?.["720pHevc"] && (
+                              <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                {selectedMovie.linkHeadings["720pHevc"]}
+                              </span>
+                            )}
+                            <span
+                              className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                              style={{
+                                color: "#1e4de4",
+                                fontFamily: "Arial, sans-serif",
+                                fontStyle: "normal",
+                                textDecorationLine: "none",
+                              }}
+                            >
+                              720p HEVC {selectedMovie.size720pHevc ? `[${selectedMovie.size720pHevc}]` : ""}
+                            </span>
+                          </button>
+                        )}
+
+                        {selectedMovie.link1080p && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.link1080p, "1080p", "dl_1080p_" + selectedMovie.id);
+                            }}
+                            className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            {selectedMovie.linkHeadings?.["1080p"] && (
+                              <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                {selectedMovie.linkHeadings["1080p"]}
+                              </span>
+                            )}
+                            <span
+                              className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                              style={{
+                                color: "#1e4de4",
+                                fontFamily: "Arial, sans-serif",
+                                fontStyle: "normal",
+                                textDecorationLine: "none",
+                              }}
+                            >
+                              1080p x264 {selectedMovie.size1080p ? `[${selectedMovie.size1080p}]` : ""}
+                            </span>
+                          </button>
+                        )}
+
+                        {selectedMovie.link1080pHevc && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.link1080pHevc, "1080p HEVC", "dl_1080phevc_" + selectedMovie.id);
+                            }}
+                            className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            {selectedMovie.linkHeadings?.["1080pHevc"] && (
+                              <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                {selectedMovie.linkHeadings["1080pHevc"]}
+                              </span>
+                            )}
+                            <span
+                              className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                              style={{
+                                color: "#1e4de4",
+                                fontFamily: "monospace",
+                                fontStyle: "normal",
+                                textDecorationLine: "none",
+                                paddingLeft: "7px",
+                                marginLeft: "-1px",
+                              }}
+                            >
+                              1080p HEVC {selectedMovie.size1080pHevc ? `[${selectedMovie.size1080pHevc}]` : ""}
+                            </span>
+                          </button>
+                        )}
+
+                        {selectedMovie.extraLinks && selectedMovie.extraLinks.map((link, idx) => {
+                          const lname = (link.name || "").toLowerCase();
+                          const isRed = /4k|2160p|web[-\s]*dl|\bhq\b|uhd|remux/i.test(lname);
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleDownloadClick(link.url, link.name, `dl_custom_${idx}_` + selectedMovie.id);
+                              }}
+                              className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                            >
+                              {link.heading && (
+                                <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                  {link.heading}
+                                </span>
+                              )}
+                              <span
+                                className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                                style={{
+                                  color: isRed ? "#ff2626" : "#1e4de4",
+                                  fontFamily: "Arial, sans-serif",
+                                  fontStyle: "normal",
+                                  textDecorationLine: "none",
+                                }}
+                              >
+                                {link.name} {link.size ? `[${link.size}]` : ""}
+                              </span>
+                            </button>
+                          );
+                        })}
+
+                        {selectedMovie.link4k && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.link4k, "4K", "dl_4k_" + selectedMovie.id);
+                            }}
+                            className="w-full py-3.5 sm:py-4 px-5 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            {selectedMovie.linkHeadings?.["4k"] && (
+                              <span className="block w-full text-center text-xs sm:text-sm font-semibold text-amber-300 tracking-wide mb-1">
+                                {selectedMovie.linkHeadings["4k"]}
+                              </span>
+                            )}
+                            <span
+                              className="block w-full font-bold text-xl sm:text-2xl md:text-[26px] tracking-wide leading-snug hover:brightness-125 transition-all"
+                              style={{
+                                color: "#ff2626",
+                                fontFamily: "Arial, sans-serif",
+                                fontStyle: "normal",
+                                textDecorationLine: "none",
+                              }}
+                            >
+                              4K/2160p SDR WEB-DL {selectedMovie.size4k ? `[${selectedMovie.size4k}]` : ""}
+                            </span>
+                          </button>
+                        )}
+
+                        {selectedMovie.liveStreamLink && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDownloadClick(selectedMovie.liveStreamLink, "live", "watch_online_" + selectedMovie.id);
+                            }}
+                            className="w-full py-2.5 sm:py-3 px-4 text-center bg-black hover:bg-white/[0.04] active:bg-white/[0.08] transition-colors cursor-pointer block"
+                          >
+                            <span
+                              className="block w-full text-[#00f5cc] hover:text-[#5eead4] font-extrabold text-base sm:text-lg md:text-xl tracking-wider leading-snug"
+                              style={{ fontFamily: "Arial, sans-serif" }}
+                            >
+                              WATCH ONLiNE
+                            </span>
+                          </button>
+                        )}
+
+                        {(selectedMovie.link620p ||
+                          selectedMovie.link720p ||
+                          selectedMovie.link1080p ||
+                          selectedMovie.link720pHevc ||
+                          selectedMovie.link1080pHevc ||
+                          selectedMovie.link4k ||
+                          selectedMovie.liveStreamLink ||
+                          (selectedMovie.extraLinks && selectedMovie.extraLinks.length > 0)) && (
+                          <div className="w-full py-2.5 sm:py-3 px-4 text-center bg-black">
+                            <span
+                              className="block w-full text-[#ff2626] font-bold text-xs sm:text-sm tracking-wide leading-snug"
+                              style={{ fontFamily: "Arial, sans-serif" }}
+                            >
+                              Save / Bookmark this website so you don&apos;t forget it!
+                            </span>
+                          </div>
+                        )}
+
+                        {!selectedMovie.link620p &&
+                          !selectedMovie.link720p &&
+                          !selectedMovie.link1080p &&
+                          !selectedMovie.link720pHevc &&
+                          !selectedMovie.link1080pHevc &&
+                          !selectedMovie.link4k &&
+                          !selectedMovie.liveStreamLink &&
+                          (!selectedMovie.extraLinks || selectedMovie.extraLinks.length === 0) && (
+                            <div className="w-full py-5 px-4 text-center text-red-400 text-base font-medium bg-black">
+                              No download links available yet.
+                            </div>
+                          )}
+                      </>
                     </div>
                   )}
                 </motion.div>
@@ -5797,120 +6324,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* APK Push Notification - Strictly for Web Browsers Only, Never in APK */}
-      <AnimatePresence>
-        {showNotificationPopup && !isApkInstalled && screen !== "admin_dashboard" && (
-          <div className="fixed bottom-0 inset-x-0 z-[999999] flex justify-center pointer-events-none px-0 sm:px-4 pb-0 sm:pb-4">
-            {/* Notification Card Sliding from Bottom - Compact Size */}
-            <motion.div
-              id="apk-notification-popup"
-              initial={{ opacity: 0, y: "100%" }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: "100%" }}
-              className="pointer-events-auto relative z-10 w-full sm:max-w-sm"
-            >
-              <div 
-                className="relative w-full bg-[#151518]/98 sm:bg-[#151518] border-t sm:border border-zinc-700/80 rounded-t-2xl sm:rounded-2xl p-3.5 sm:p-4 shadow-[0_-10px_35px_rgba(0,0,0,0.9)] text-center overflow-hidden cursor-default sm:cursor-pointer"
-                onClick={(e) => {
-                  if (!isApkInstalled) {
-                    adService.triggerMonetagDirect(e, 'apk_notification_card', isMobileOrTablet);
-                  }
-                }}
-              >
-                {/* Close Button (X) */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!isApkInstalled) {
-                      adService.triggerMonetagDirect(e, 'apk_notification_cut_btn', isMobileOrTablet);
-                    }
-                    setShowNotificationPopup(false);
-                  }}
-                  className="absolute top-2.5 right-2.5 p-1 text-zinc-400 hover:text-white bg-zinc-800/80 hover:bg-zinc-700 rounded-full transition-colors cursor-pointer"
-                  title="Close notification"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-
-                {/* Compact Header: Icon + Title + Zero Ads Badge */}
-                <div className="flex items-center gap-2.5 mb-2 pr-5 text-left">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-md shadow-red-600/30 border border-red-500/30 shrink-0">
-                    <Download className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-[9px] font-black uppercase text-amber-300">
-                      <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
-                      <span>100% Zero Ads Guarantee</span>
-                    </div>
-                    <h3 className="text-sm sm:text-base font-black text-white tracking-wide truncate">
-                      Install Maxhub4u APK
-                    </h3>
-                  </div>
-                </div>
-
-                {/* English Warning / Notice Box - Compact */}
-                <div className="mb-2 p-2 rounded-xl bg-amber-950/40 border border-amber-500/40 text-left">
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-sm leading-none mt-0.5">⚠️</span>
-                    <p className="text-[11px] text-amber-100/95 leading-tight">
-                      <strong className="text-amber-300 uppercase font-bold text-[10px] mr-1">OFFICIAL NOTICE:</strong>
-                      Download our official Android APK to get <span className="underline decoration-amber-400 font-extrabold text-white">0 ADS</span>! 100% clean, fast &amp; uninterrupted streaming.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Feature Pills */}
-                <div className="flex items-center justify-center gap-1.5 text-[10px] font-semibold text-zinc-300 mb-2.5">
-                  <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Popups
-                  </span>
-                  <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> 0 Redirects
-                  </span>
-                  <span className="bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" /> Ad-Free
-                  </span>
-                </div>
-
-                {/* Actions: Install Button + Skip / Close Option */}
-                <div className="flex flex-col gap-1.5">
-                  <a
-                    href="https://drive.google.com/drive/folders/1W_kFzu5wqaaIxdmKoLmhfBnqsZEKhvxG?usp=drive_link"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApkDownload();
-                      setShowNotificationPopup(false);
-                    }}
-                    className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 text-white font-black text-xs sm:text-sm py-2 px-4 rounded-xl shadow-md shadow-red-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-red-600/50"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Maxhub4u App (0 Ads)</span>
-                  </a>
-
-                  {/* Skip Option for APK on Mobile Browser */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!isApkInstalled) {
-                        adService.triggerMonetagDirect(e, 'apk_notification_skip_btn', isMobileOrTablet);
-                      }
-                      setShowNotificationPopup(false);
-                    }}
-                    className="w-full py-1 text-[11px] font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1 active:scale-95"
-                  >
-                    <SkipForward className="w-3 h-3" />
-                    <span>Skip for now ✕ (Continue with ads)</span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
 
 

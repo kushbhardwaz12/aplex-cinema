@@ -105,7 +105,6 @@ export default async function handler(req, res) {
 
     const candidates = [
       path.join(process.cwd(), "public", "sitemap.xml"),
-      path.join(process.cwd(), "sitemap-backup.xml"),
     ];
 
     for (const p of candidates) {

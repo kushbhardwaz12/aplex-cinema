@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "api/movie.js": {
+      "includeFiles": "dist/index.html"
+    },
+    "api/sitemap.js": {
+      "includeFiles": "public/sitemap.xml"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/sitemap",

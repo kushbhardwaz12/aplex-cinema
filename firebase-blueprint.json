@@ -15,6 +15,11 @@
           "link620p": { "type": "string" },
           "link720p": { "type": "string" },
           "link1080p": { "type": "string" },
+          "link720pHevc": { "type": "string" },
+          "link1080pHevc": { "type": "string" },
+          "link4k": { "type": "string" },
+          "linkHeadings": { "type": "object" },
+          "extraLinks": { "type": "array", "items": { "type": "object" } },
           "ratings": { "type": "array", "items": { "type": "number" } },
           "episodes": { "type": "array", "items": { "type": "object" } }
         }

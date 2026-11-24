@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
 export interface AdConfig {
@@ -193,10 +193,18 @@ class AdService {
       }
     } catch {}
 
-    // Listen to real-time changes from Firestore site_settings/ads
+    // Fetch remote config from Firestore site_settings/ads at most once every 15 minutes
+    const AD_CACHE_TTL_MS = 15 * 60 * 1000;
     try {
-      const docRef = doc(db, "site_settings", "ads");
-      onSnapshot(docRef, (snap) => {
+      const lastFetched = Number(localStorage.getItem("adsterra_config_ts") || "0");
+      if (Date.now() - lastFetched < AD_CACHE_TTL_MS && localStorage.getItem("adsterra_config")) {
+        return;
+      }
+    } catch {}
+
+    const docRef = doc(db, "site_settings", "ads");
+    getDoc(docRef)
+      .then((snap) => {
         if (snap.exists()) {
           const data = snap.data() as Partial<AdConfig>;
           this.config = {
@@ -205,14 +213,13 @@ class AdService {
           };
           try {
             localStorage.setItem("adsterra_config", JSON.stringify(this.config));
+            localStorage.setItem("adsterra_config_ts", String(Date.now()));
           } catch {}
         }
-      }, (err) => {
-        console.warn("AdService: Remote config listener error (using local fallbacks):", err);
+      })
+      .catch((err) => {
+        console.warn("AdService: Remote config fetch skipped (using local fallbacks):", err?.message || err);
       });
-    } catch (err) {
-      console.warn("AdService: Init error:", err);
-    }
   }
 
   public getConfig(): AdConfig {

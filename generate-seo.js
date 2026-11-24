@@ -70,7 +70,6 @@ async function run() {
 
     // Write static sitemap for Vercel and local static builds
     fs.writeFileSync('public/sitemap.xml', sitemap);
-    fs.writeFileSync('sitemap-backup.xml', sitemap);
     console.log(`Successfully generated public/sitemap.xml with ${snapshot.size + 1} URLs.`);
 
     // Inject SEO crawlable movie links into index.html for Googlebot crawler discovery
